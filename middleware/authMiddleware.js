@@ -10,7 +10,7 @@ export const authMiddleware = async (req, res, next) => {
     }
 
     // Verify token
-    const decoded = jwt.verify(token, "mysecret123");
+     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
     // Find owner
     const owner = await Owner.findById(decoded.id).select("-password");
