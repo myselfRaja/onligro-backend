@@ -76,10 +76,12 @@ router.post("/login", async (req, res) => {
     // Set token in cookie
 res.cookie("token", token, {
   httpOnly: true,
-  secure: true,     // render always https
-  sameSite: "none", // cross-site cookie allowed
+  secure: true,
+  sameSite: "none",
   maxAge: 7 * 24 * 60 * 60 * 1000,
 });
+
+
 
 
 
