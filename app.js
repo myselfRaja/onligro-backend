@@ -52,14 +52,19 @@ app.use(
   cors({
     origin: [
       "http://localhost:3000",
-      "https://onligro.vercel.app",
+      "https://onligro.com",
+      "https://www.onligro.com",
+      "https://portfolio.onligro.com",
+      "https://dashboard.onligro.com" // Future dashboard
     ],
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
+
 app.options(/.*/, cors());
+
 
 
 // --------------------------
