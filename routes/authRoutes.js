@@ -29,18 +29,18 @@ router.post("/register", async (req, res) => {
       password: hashed,
     });
 
- const safeOwner = {
-  _id: owner._id,
-  name: owner.name,
-  email: owner.email,
-  phone: owner.phone,
-  createdAt: owner.createdAt,
-};
+    const safeOwner = {
+      _id: owner._id,
+      name: owner.name,
+      email: owner.email,
+      phone: owner.phone,
+      createdAt: owner.createdAt,
+    };
 
-return res.json({
-  message: "Owner registered successfully",
-  owner: safeOwner,
-});
+    return res.json({
+      message: "Owner registered successfully",
+      owner: safeOwner,
+    });
 
   } catch (err) {
     return res.status(500).json({ error: err.message });
@@ -98,5 +98,53 @@ router.post("/login", async (req, res) => {
   }
 });
 
+// --------------------------
+// ✅ ADD THIS: LOGOUT OWNER
+// --------------------------
+router.post("/logout", (req, res) => {
+  console.log("🔵 LOGOUT ROUTE CALLED");
+  
+  // Clear the cookie
+  res.clearCookie("token", {
+    httpOnly: true,
+    secure: true,
+    sameSite: "none",
+    path: "/",
+  });
+  
+  console.log("🟢 Cookie cleared successfully");
+  
+  res.json({ 
+    success: true, 
+    message: "Logged out successfully" 
+  });
+});
+
+// --------------------------
+// ✅ ADD THIS: VERIFY OWNER (for frontend auth check)
+// --------------------------
+router.get("/verify", async (req, res) => {
+  try {
+    const token = req.cookies.token;
+    
+    if (!token) {
+      return res.status(401).json({ message: "No token" });
+    }
+    
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const owner = await Owner.findById(decoded.id).select("-password");
+    
+    if (!owner) {
+      res.clearCookie("token");
+      return res.status(401).json({ message: "Owner not found" });
+    }
+    
+    res.json({ owner });
+    
+  } catch (err) {
+    res.clearCookie("token");
+    return res.status(401).json({ message: "Invalid token" });
+  }
+});
 
 export default router;
