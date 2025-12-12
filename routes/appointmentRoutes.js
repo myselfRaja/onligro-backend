@@ -124,10 +124,11 @@ router.get("/all", authMiddleware, async (req, res) => {
     const appointments = await Appointment.find({ salonId: salon._id })
       .populate("staffId", "name")
       .populate("services")
-      .sort({ startAt: 1 });
+        .sort({ createdAt: -1 }); 
 
     return res.json({
       message: "Appointments fetched successfully",
+          total: appointments.length, 
       appointments
     });
 
@@ -212,6 +213,32 @@ router.post("/cancel/:id", authMiddleware, async (req, res) => {
     return res.status(500).json({ error: err.message });
   }
 });
+
+// HARD DELETE APPOINTMENT
+router.delete("/delete/:id", authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const appointment = await Appointment.findById(id);
+
+    if (!appointment) {
+      return res.status(404).json({ message: "Appointment not found" });
+    }
+
+    // Only owner can delete
+    if (appointment.ownerId.toString() !== req.owner._id.toString()) {
+      return res.status(403).json({ message: "Not authorized" });
+    }
+
+    await Appointment.findByIdAndDelete(id);
+
+    return res.json({ message: "Appointment deleted successfully" });
+
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 
 
 
