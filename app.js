@@ -26,6 +26,13 @@ import reportRoutes from "./routes/reportRoutes.js";
 import ownerRoutes from "./routes/ownerRoutes.js";
 import protectedRoutes from "./routes/protectedRoutes.js";
 
+// PUBLIC ROUTES
+import appointmentPublicRoutes from "./routes/public/appointmentPublicRoutes.js";
+import salonPublicRoutes from "./routes/public/salonPublicRoutes.js";
+import servicePublicRoutes from "./routes/public/servicePublicRoutes.js";
+import slotPublicRoutes from "./routes/public/slotPublicRoutes.js";
+import workingHoursPublicRoutes from "./routes/public/workingHoursPublicRoutes.js";
+import salonImageUploadRoutes from "./routes/public/salonImageUpload.js";
 // --------------------------
 // APP INIT
 // --------------------------
@@ -107,6 +114,21 @@ app.use("/reports", reportRoutes);
 app.use("/owner", ownerRoutes);
 app.use("/protected", protectedRoutes);
 
+
+// --------------------------
+// PUBLIC ROUTES
+// --------------------------
+app.use("/public/salon", salonPublicRoutes);
+
+app.use("/public/appointments", appointmentPublicRoutes);
+
+app.use("/public/services", servicePublicRoutes);
+
+app.use("/public/slots", slotPublicRoutes);
+
+app.use("/public/working-hours", workingHoursPublicRoutes);
+
+app.use("/public/salon", salonImageUploadRoutes);
 // --------------------------
 // ROOT ROUTE
 // --------------------------
