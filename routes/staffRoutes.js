@@ -54,6 +54,36 @@ router.get("/all", authMiddleware, async (req, res) => {
   }
 });
 
+// TOGGLE STAFF STATUS
+router.put("/toggle-status/:id", authMiddleware, async (req, res) => {
+  try {
+    const staff = await Staff.findOne({
+      _id: req.params.id,
+      ownerId: req.owner._id,
+    });
+
+    if (!staff) {
+      return res.status(404).json({
+        message: "Staff not found",
+      });
+    }
+
+    staff.isActive = !staff.isActive;
+    await staff.save();
+
+    res.json({
+      message: `Staff ${
+        staff.isActive ? "activated" : "deactivated"
+      } successfully`,
+      staff,
+    });
+  } catch (err) {
+    res.status(500).json({
+      error: err.message,
+    });
+  }
+});
+
 // DELETE STAFF
 router.delete("/delete/:id", authMiddleware, async (req, res) => {
   try {

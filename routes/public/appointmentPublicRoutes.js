@@ -44,7 +44,7 @@ router.get("/:appointmentId", async (req, res) => {
 // PUBLIC - CREATE APPOINTMENT (your existing route)
 router.post("/create", async (req, res) => {
   try {
-    const { salonId, services, date, time, customerName, customerPhone } = req.body;
+const { salonId, services, date, time, customerName, customerPhone, staffId } = req.body;
 
     // Validation
     if (!salonId || !services || services.length === 0 || !date || !time) {
@@ -72,30 +72,56 @@ router.post("/create", async (req, res) => {
     const endAt = new Date(startAt.getTime() + totalDuration * 60000);
 
     // 4) Auto assign staff
-    const staffList = await Staff.find({ salonId });
+   let assignedStaff = null;
 
-    if (staffList.length === 0)
-      return res.status(400).json({ message: "No staff found" });
+// CASE 1: USER SELECTED STAFF
+if (staffId) {
+  const staff = await Staff.findById(staffId);
 
-    let assignedStaff = null;
+  if (!staff) {
+    return res.status(400).json({ message: "Selected staff not found" });
+  }
 
-    for (const staff of staffList) {
-      const appointments = await Appointment.find({
-        staffId: staff._id,
-        startAt: { $lt: endAt },
-        endAt: { $gt: startAt },
-        status: { $ne: "cancelled" },
-      });
+  const conflict = await Appointment.findOne({
+    staffId,
+    startAt: { $lt: endAt },
+    endAt: { $gt: startAt },
+    status: { $ne: "cancelled" },
+  });
 
-      if (appointments.length === 0) {
-        assignedStaff = staff;
-        break;
-      }
+  if (conflict) {
+    return res.status(400).json({
+      message: "Selected staff is not available at this time choose another staff or time!",
+    });
+  }
+
+  assignedStaff = staff;
+}
+
+// CASE 2: AUTO ASSIGN
+else {
+  const staffList = await Staff.find({ salonId, isActive: true });
+
+  for (const staff of staffList) {
+    const conflict = await Appointment.findOne({
+      staffId: staff._id,
+      startAt: { $lt: endAt },
+      endAt: { $gt: startAt },
+      status: { $ne: "cancelled" },
+    });
+
+    if (!conflict) {
+      assignedStaff = staff;
+      break;
     }
+  }
 
-    if (!assignedStaff) {
-      return res.status(400).json({ message: "No staff available at this time" });
-    }
+  if (!assignedStaff) {
+    return res.status(400).json({
+      message: "No staff available at this time",
+    });
+  }
+}
 
     // 5) Save appointment
     const newAppointment = await Appointment.create({

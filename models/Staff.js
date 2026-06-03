@@ -19,7 +19,11 @@ const staffSchema = new mongoose.Schema(
     role: {
       type: String,
       default: "Staff"
-    }
+    },
+    isActive: {
+  type: Boolean,
+  default: true
+}
   },
   { timestamps: true }
 );

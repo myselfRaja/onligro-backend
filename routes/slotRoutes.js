@@ -60,7 +60,10 @@ router.post("/available", async (req, res) => {
     }
 
     // 4) fetch salon staff count
-    const staffCount = await Staff.countDocuments({ salonId });
+  const staffCount = await Staff.countDocuments({
+  salonId,
+  isActive: true
+});
 
     // 5) fetch existing appointments for that salon for that date (we'll compare times)
     // fetch appointments that could overlap with any slot -> range from (open - duration) to (close + duration)

@@ -1,6 +1,6 @@
 import express from "express";
 import { Salon } from "../../models/Salon.js";
-
+import { Staff } from "../../models/Staff.js";
 const router = express.Router();
 
 // ===============================
@@ -84,6 +84,26 @@ router.get("/:id", async (req, res) => {
 
   } catch (err) {
     return res.status(500).json({ error: err.message });
+  }
+});
+
+// ===============================
+// PUBLIC: GET ACTIVE STAFF OF SALON
+// ===============================
+router.get("/staff/:salonId", async (req, res) => {
+  try {
+    const staff = await Staff.find({
+      salonId: req.params.salonId,
+      isActive: true,
+    }).select("name role");
+
+    res.json({
+      staff,
+    });
+  } catch (err) {
+    res.status(500).json({
+      error: err.message,
+    });
   }
 });
 
