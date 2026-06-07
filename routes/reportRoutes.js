@@ -7,6 +7,7 @@ const router = express.Router();
 // ==================== SUMMARY API ====================
 // ==================== SUMMARY API ====================
 router.get("/summary", authMiddleware, async (req, res) => {
+  
   try {
 
     const { startDate, endDate } = req.query;
@@ -38,10 +39,12 @@ router.get("/summary", authMiddleware, async (req, res) => {
 
     const appointments = await Appointment.find(query);
 
+
     const totalRevenue = appointments.reduce(
-      (sum, appt) => sum + (appt.totalPrice || 0),
-      0
-    );
+  (sum, appt) =>
+    sum + (appt.finalAmount ?? appt.totalPrice ?? 0),
+  0
+);
 
     const totalBookings = appointments.length;
 
@@ -103,6 +106,7 @@ router.get("/summary", authMiddleware, async (req, res) => {
 // ==================== REVENUE OVERVIEW API ====================
 // ==================== REVENUE OVERVIEW API ====================
 router.get("/revenue-overview", authMiddleware, async (req, res) => {
+  
   try {
 
     const { startDate, endDate } = req.query;
@@ -150,9 +154,9 @@ router.get("/revenue-overview", authMiddleware, async (req, res) => {
         }
       );
 
-      revenueMap[day] =
-        (revenueMap[day] || 0) +
-        (appt.totalPrice || 0);
+     revenueMap[day] =
+  (revenueMap[day] || 0) +
+  (appt.finalAmount ?? appt.totalPrice ?? 0);
 
     });
 
@@ -246,11 +250,12 @@ router.get("/top-services", authMiddleware, async (req, res) => {
         },
       },
 
-      {
-        $sort: {
-          revenue: -1,
-        },
-      },
+     {
+  $sort: {
+    count: -1,
+    revenue: -1
+  },
+}
 
     ]);
 
@@ -314,9 +319,11 @@ router.get("/staff-performance", authMiddleware, async (req, res) => {
           bookings: {
             $sum: 1,
           },
-          revenue: {
-            $sum: "$totalPrice",
-          },
+        revenue: {
+  $sum: {
+    $ifNull: ["$finalAmount", "$totalPrice"]
+  }
+},
         },
       },
 

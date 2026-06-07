@@ -44,7 +44,7 @@ router.get("/:appointmentId", async (req, res) => {
 // PUBLIC - CREATE APPOINTMENT (your existing route)
 router.post("/create", async (req, res) => {
   try {
-const { salonId, services, date, time, customerName, customerPhone, staffId } = req.body;
+const { salonId, services, date, time, customerName, customerPhone, staffId, finalAmount } = req.body;
 
     // Validation
     if (!salonId || !services || services.length === 0 || !date || !time) {
@@ -132,6 +132,7 @@ else {
       customerPhone,
       services,
       totalPrice,
+     finalAmount: Number(finalAmount) || totalPrice,
       totalDuration,
       startAt,
       endAt,

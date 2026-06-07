@@ -46,7 +46,11 @@ const appointmentSchema = new mongoose.Schema(
       type: Number,
       required: true,
     },
-
+    
+finalAmount: {
+  type: Number,
+  default: null,
+},
     totalDuration: {
       type: Number,
       required: true,
