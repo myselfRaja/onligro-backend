@@ -25,6 +25,9 @@ import appointmentRoutes from "./routes/appointmentRoutes.js";
 import reportRoutes from "./routes/reportRoutes.js";
 import ownerRoutes from "./routes/ownerRoutes.js";
 import protectedRoutes from "./routes/protectedRoutes.js";
+import billRoutes from "./routes/billRoutes.js";
+import customerRoutes from "./routes/customerRoutes.js";
+import reminderRoutes from "./routes/reminderRoutes.js";
 
 // PUBLIC ROUTES
 import appointmentPublicRoutes from "./routes/public/appointmentPublicRoutes.js";
@@ -113,8 +116,9 @@ app.use("/appointments", appointmentRoutes);
 app.use("/reports", reportRoutes);
 app.use("/owner", ownerRoutes);
 app.use("/protected", protectedRoutes);
-
-
+app.use("/bills", billRoutes);
+app.use("/customers", customerRoutes);
+app.use("/reminders", reminderRoutes);
 // --------------------------
 // PUBLIC ROUTES
 // --------------------------
