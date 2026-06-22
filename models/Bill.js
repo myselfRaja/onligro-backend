@@ -55,6 +55,10 @@ const billSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    staffId: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: "Staff"
+},
 
     totalAmount: {
       type: Number,

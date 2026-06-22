@@ -1,5 +1,5 @@
 import express from "express";
-import { Appointment } from "../models/Appointment.js";
+import { Bill } from "../models/Bill.js";
 import { authMiddleware } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
@@ -31,49 +31,52 @@ router.get("/summary", authMiddleware, async (req, res) => {
 
       end.setHours(23, 59, 59, 999);
 
-      query.startAt = {
-        $gte: start,
-        $lte: end,
-      };
-    }
+       query.createdAt = {
+    $gte: start,
+    $lte: end,
+  };
+}
 
-    const appointments = await Appointment.find(query);
+const bills = await Bill.find(query);
 
 
-    const totalRevenue = appointments.reduce(
-  (sum, appt) =>
-    sum + (appt.finalAmount ?? appt.totalPrice ?? 0),
+
+const totalRevenue = bills.reduce(
+  (sum, bill) => sum + bill.finalAmount,
   0
 );
 
-    const totalBookings = appointments.length;
+const totalBills = bills.length;
 
-    const avgBookingValue =
-      totalBookings > 0
-        ? Math.round(totalRevenue / totalBookings)
-        : 0;
+const avgBillValue =
+  totalBills > 0
+    ? Math.round(totalRevenue / totalBills)
+    : 0;
 
-    // Repeat customer calculation
-    const customerMap = {};
+const customerPhones = [
+  ...new Set(
+    bills
+      .map((bill) => bill.customerPhone)
+      .filter(Boolean)
+  )
+];
 
-    appointments.forEach((appt) => {
+let repeatCustomers = 0;
 
-      const phone = appt.customerPhone;
+for (const phone of customerPhones) {
 
-      if (phone) {
-        customerMap[phone] =
-          (customerMap[phone] || 0) + 1;
-      }
-
+  const totalVisits =
+    await Bill.countDocuments({
+      salonId,
+      customerPhone: phone
     });
 
-    const repeatCustomers =
-      Object.values(customerMap).filter(
-        (count) => count > 1
-      ).length;
+  if (totalVisits > 1) {
+    repeatCustomers++;
+  }
+}
 
-    const totalCustomers =
-      Object.keys(customerMap).length;
+const totalCustomers = customerPhones.length;
 
     const repeatCustomerPercentage =
       totalCustomers > 0
@@ -82,15 +85,15 @@ router.get("/summary", authMiddleware, async (req, res) => {
           )
         : 0;
 
-    res.json({
-      success: true,
-      summary: {
-        totalRevenue,
-        totalBookings,
-        avgBookingValue,
-        repeatCustomerPercentage,
-      },
-    });
+res.json({
+  success: true,
+  summary: {
+    totalRevenue,
+    totalBills,
+    avgBillValue,
+    repeatCustomerPercentage,
+  },
+});
 
   } catch (err) {
 
@@ -136,15 +139,13 @@ router.get("/revenue-overview", authMiddleware, async (req, res) => {
       };
     }
 
-    const appointments = await Appointment.find(query);
 
-    const revenueMap = {};
 
-    appointments.forEach((appt) => {
+const bills = await Bill.find(query);
+const revenueMap = {};
+bills.forEach((bill) => {
 
-      if (!appt.startAt) return;
-
-      const date = new Date(appt.startAt);
+  const date = new Date(bill.createdAt);
 
       const day = date.toLocaleDateString(
         "en-IN",
@@ -156,7 +157,7 @@ router.get("/revenue-overview", authMiddleware, async (req, res) => {
 
      revenueMap[day] =
   (revenueMap[day] || 0) +
-  (appt.finalAmount ?? appt.totalPrice ?? 0);
+  (bill.finalAmount ?? 0);
 
     });
 
@@ -209,55 +210,42 @@ router.get("/top-services", authMiddleware, async (req, res) => {
 
       end.setHours(23, 59, 59, 999);
 
-      matchCondition.startAt = {
+     matchCondition.createdAt = {
         $gte: start,
         $lte: end,
       };
     }
 
-    const data = await Appointment.aggregate([
-
-      {
-        $match: matchCondition,
-      },
-
-      {
-        $unwind: "$services",
-      },
-
-      {
-        $lookup: {
-          from: "services",
-          localField: "services",
-          foreignField: "_id",
-          as: "serviceData",
-        },
-      },
-
-      {
-        $unwind: "$serviceData",
-      },
-
-      {
-        $group: {
-          _id: "$serviceData.name",
-          count: {
-            $sum: 1,
-          },
-          revenue: {
-            $sum: "$serviceData.price",
-          },
-        },
-      },
-
-     {
-  $sort: {
-    count: -1,
-    revenue: -1
+    const data = await Bill.aggregate([
+  {
+    $match: matchCondition,
   },
-}
 
-    ]);
+  {
+    $unwind: "$services",
+  },
+
+  {
+    $group: {
+      _id: "$services.serviceName",
+
+      count: {
+        $sum: 1,
+      },
+
+      revenue: {
+        $sum: "$services.price",
+      },
+    },
+  },
+
+  {
+    $sort: {
+      count: -1,
+      revenue: -1,
+    },
+  },
+]);
 
     res.json({
       success: true,
@@ -301,61 +289,57 @@ router.get("/staff-performance", authMiddleware, async (req, res) => {
 
       end.setHours(23, 59, 59, 999);
 
-      matchCondition.startAt = {
+      matchCondition.createdAt = {
         $gte: start,
         $lte: end,
       };
     }
 
-    const data = await Appointment.aggregate([
+  const data = await Bill.aggregate([
+  {
+    $match: matchCondition,
+  },
 
-      {
-        $match: matchCondition,
+  {
+    $group: {
+      _id: "$staffId",
+      bookings: {
+        $sum: 1,
       },
-
-      {
-        $group: {
-          _id: "$staffId",
-          bookings: {
-            $sum: 1,
-          },
-        revenue: {
-  $sum: {
-    $ifNull: ["$finalAmount", "$totalPrice"]
-  }
-},
-        },
+      revenue: {
+        $sum: "$finalAmount",
       },
+    },
+  },
 
-      {
-        $lookup: {
-          from: "staffs",
-          localField: "_id",
-          foreignField: "_id",
-          as: "staffInfo",
-        },
-      },
+  {
+    $lookup: {
+      from: "staffs",
+      localField: "_id",
+      foreignField: "_id",
+      as: "staff",
+    },
+  },
 
-      {
-        $unwind: "$staffInfo",
-      },
+  {
+    $unwind: "$staff",
+  },
 
-      {
-        $project: {
-          _id: 0,
-          name: "$staffInfo.name",
-          bookings: 1,
-          revenue: 1,
-        },
-      },
+  {
+    $project: {
+      _id: 0,
+      name: "$staff.name",
+      bookings: 1,
+      revenue: 1,
+    },
+  },
 
-      {
-        $sort: {
-          revenue: -1,
-        },
-      },
-
-    ]);
+  {
+    $sort: {
+      revenue: -1,
+    },
+  },
+]);
 
     res.json({
       success: true,
@@ -399,15 +383,16 @@ router.get("/peak-hours", authMiddleware, async (req, res) => {
 
       end.setHours(23, 59, 59, 999);
 
-      query.startAt = {
+      query.createdAt = {
         $gte: start,
         $lte: end,
       };
     }
 
-    const appointments = await Appointment.find(query);
 
-    if (appointments.length < 3) {
+const bills = await Bill.find(query);
+
+   if (bills.length < 3) {
       return res.json({
         success: true,
         data: {
@@ -422,11 +407,11 @@ router.get("/peak-hours", authMiddleware, async (req, res) => {
 
     const dayMap = {};
 
-    appointments.forEach((appt) => {
+    bills.forEach((bill) => {
 
-      if (!appt.startAt) return;
+      if (!bill.createdAt) return;
 
-      const date = new Date(appt.startAt);
+      const date = new Date(bill.createdAt);
 
       const hour = date.getHours();
 

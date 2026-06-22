@@ -44,7 +44,7 @@ router.get("/all", authMiddleware, async (req, res) => {
 
     // Get staff linked to that salon
     const staffList = await Staff.find({ salonId: salon._id });
-
+    
     res.json({
       message: "Staff fetched successfully",
       staff: staffList,
@@ -83,7 +83,38 @@ router.put("/toggle-status/:id", authMiddleware, async (req, res) => {
     });
   }
 });
+// UPDATE STAFF
+router.put("/update/:id", authMiddleware, async (req, res) => {
+  try {
+    const { name, role } = req.body;
 
+    const staff = await Staff.findOne({
+      _id: req.params.id,
+      ownerId: req.owner._id
+    });
+
+    if (!staff) {
+      return res.status(404).json({
+        message: "Staff not found"
+      });
+    }
+
+    staff.name = name;
+    staff.role = role;
+
+    await staff.save();
+
+    res.json({
+      message: "Staff updated successfully",
+      staff
+    });
+
+  } catch (err) {
+    res.status(500).json({
+      error: err.message
+    });
+  }
+});
 // DELETE STAFF
 router.delete("/delete/:id", authMiddleware, async (req, res) => {
   try {
