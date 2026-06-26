@@ -59,6 +59,39 @@ router.get("/all", authMiddleware, async (req, res) => {
   }
 });
 
+// UPDATE SERVICE
+router.put("/update/:id", authMiddleware, async (req, res) => {
+  try {
+    const { name, price, duration } = req.body;
+
+    const service = await Service.findOne({
+      _id: req.params.id,
+      ownerId: req.owner._id,
+    });
+
+    if (!service) {
+      return res.status(404).json({
+        message: "Service not found or unauthorized",
+      });
+    }
+
+    service.name = name;
+    service.price = price;
+    service.duration = duration;
+
+    await service.save();
+
+    res.json({
+      message: "Service updated successfully",
+      service,
+    });
+
+  } catch (err) {
+    res.status(500).json({
+      error: err.message,
+    });
+  }
+});
 
 // DELETE SERVICE
 router.delete("/delete/:id", authMiddleware, async (req, res) => {
