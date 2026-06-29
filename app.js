@@ -28,6 +28,7 @@ import protectedRoutes from "./routes/protectedRoutes.js";
 import billRoutes from "./routes/billRoutes.js";
 import customerRoutes from "./routes/customerRoutes.js";
 import reminderRoutes from "./routes/reminderRoutes.js";
+import ProductRoutes from "./routes/ProductRoutes.js";
 
 // PUBLIC ROUTES
 import appointmentPublicRoutes from "./routes/public/appointmentPublicRoutes.js";
@@ -119,6 +120,7 @@ app.use("/protected", protectedRoutes);
 app.use("/bills", billRoutes);
 app.use("/customers", customerRoutes);
 app.use("/reminders", reminderRoutes);
+app.use("/products", ProductRoutes);
 // --------------------------
 // PUBLIC ROUTES
 // --------------------------
