@@ -216,7 +216,57 @@ const populatedBill = await Bill.findById(bill._id)
   }
 });
 
+// DELETE BILL
+router.delete("/:id", authMiddleware, async (req, res) => {
+  try {
+    const salon = await Salon.findOne({ ownerId: req.owner._id });
+    if (!salon) {
+      return res.status(404).json({ message: "Salon not found" });
+    }
 
+    const bill = await Bill.findOne({
+      _id: req.params.id,
+      salonId: salon._id,
+    });
+
+    if (!bill) {
+      return res.status(404).json({ message: "Bill not found" });
+    }
+
+    // ✅ Update customer stats (deduct bill amount)
+    await Customer.updateOne(
+      { phone: bill.customerPhone, salonId: salon._id },
+      {
+        $inc: {
+          totalVisits: -1,
+          totalSpent: -(bill.finalAmount || 0),
+        },
+      }
+    );
+
+    // ✅ Update staff stats (deduct bill amount)
+    await Staff.updateOne(
+      { _id: bill.staffId, salonId: salon._id },
+      {
+        $inc: {
+          bookingCount: -1,
+          revenue: -(bill.finalAmount || 0),
+        },
+      }
+    );
+
+    // ✅ Delete the bill
+    await Bill.deleteOne({ _id: req.params.id });
+
+    res.json({
+      success: true,
+      message: "Bill deleted successfully",
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 
 export default router;
