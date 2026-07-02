@@ -44,7 +44,26 @@ const billSchema = new mongoose.Schema(
         duration: Number,
       },
     ],
-
+products: [
+  {
+    productId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Product",
+    },
+    productName: {
+      type: String,
+    },
+    price: {
+      type: Number,
+    },
+    quantity: {
+      type: Number,
+    },
+    total: {
+      type: Number,
+    },
+  },
+],
     staffId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Staff",

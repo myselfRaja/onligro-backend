@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 
 const productSchema = new mongoose.Schema(
   {
+    // ===== BASIC INFO =====
     name: {
       type: String,
       required: true,
@@ -33,6 +34,7 @@ const productSchema = new mongoose.Schema(
       default: "",
     },
 
+    // ===== PRICING =====
     mrp: {
       type: Number,
       default: 0,
@@ -78,6 +80,7 @@ const productSchema = new mongoose.Schema(
       default: 0,
     },
 
+    // ===== STOCK =====
     stockQuantity: {
       type: Number,
       default: 0,
@@ -88,16 +91,33 @@ const productSchema = new mongoose.Schema(
       default: 5,
     },
 
+    // ===== RELATIONS =====
     salonId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Salon",
       required: true,
+    },
+
+    // ===== STATUS =====
+    isActive: {
+      type: Boolean,
+      default: true,
     },
   },
   {
     timestamps: true,
   }
 );
+
+// ===== VIRTUAL: Check if low stock =====
+productSchema.virtual("isLowStock").get(function () {
+  return this.stockQuantity <= this.lowStockThreshold;
+});
+
+// ===== VIRTUAL: Check if out of stock =====
+productSchema.virtual("isOutOfStock").get(function () {
+  return this.stockQuantity === 0;
+});
 
 const Product = mongoose.model("Product", productSchema);
 
