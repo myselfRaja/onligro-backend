@@ -1,6 +1,10 @@
+
 import express from "express";
 import bcrypt from "bcrypt";
+import crypto from "crypto";
 import jwt from "jsonwebtoken";
+import PasswordReset from "../models/PasswordReset.js";   // ✅ ADD THIS
+import { sendEmail } from "../utils/email.js";    
 import { Owner } from "../models/Owner.js";
 
 const router = express.Router();
@@ -39,6 +43,180 @@ router.get("/verify", async (req, res) => {
 
     return res.status(401).json({
       message: "Invalid token",
+    });
+  }
+});
+
+// 1. FORGOT PASSWORD – Send OTP
+// ======a======================================
+
+router.post("/forgot-password", async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    const owner = await Owner.findOne({ email });
+    if (!owner) {
+      return res.json({
+        success: true,
+        message: "If email exists, OTP sent",
+      });
+    }
+
+    // ✅ OTP Generate
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const hashedToken = crypto.createHash("sha256").update(otp).digest("hex");
+
+    await PasswordReset.create({
+      ownerId: owner._id,
+      token: hashedToken,
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+    });
+
+
+    // ✅ Send Email
+    const emailResult = await sendEmail({
+      to: email,
+      subject: "Password Reset OTP - Onligro",
+      html: `
+        <h2>🔐 Password Reset Request</h2>
+        <p>Your OTP is: <strong>${otp}</strong></p>
+        <p>This OTP is valid for <strong>10 minutes</strong>.</p>
+        <p>If you didn't request this, ignore this email.</p>
+        <hr />
+        <p style="color: #888; font-size: 12px;">Onligro - Salon Management</p>
+      `,
+    });
+
+    if (!emailResult.success) {
+      console.error("Email send failed:", emailResult.error);
+    }
+
+    res.json({
+      success: true,
+      message: "OTP sent to your email",
+    });
+  } catch (error) {
+    console.error("Forgot password error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Something went wrong. Please try again later.",
+    });
+  }
+});
+
+// ============================================
+// 2. VERIFY OTP
+// ============================================
+router.post("/verify-otp", async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+
+    const owner = await Owner.findOne({ email });
+    if (!owner) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid email",
+      });
+    }
+
+    const hashedOTP = crypto.createHash("sha256").update(otp).digest("hex");
+
+    const resetRecord = await PasswordReset.findOne({
+      ownerId: owner._id,
+      token: hashedOTP,
+      used: false,
+      expiresAt: { $gt: new Date() },
+    });
+
+    if (!resetRecord) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid or expired OTP",
+      });
+    }
+
+    res.json({
+      success: true,
+      message: "OTP verified",
+    });
+
+  } catch (error) {
+    console.error("Verify OTP error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to verify OTP",
+    });
+  }
+});
+
+// ============================================
+// 3. RESET PASSWORD
+// ============================================
+router.post("/reset-password", async (req, res) => {
+  try {
+    const { email, otp, newPassword } = req.body;
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: "Password must be at least 6 characters",
+      });
+    }
+
+    const owner = await Owner.findOne({ email });
+    if (!owner) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid email",
+      });
+    }
+
+    const hashedOTP = crypto.createHash("sha256").update(otp).digest("hex");
+
+    const resetRecord = await PasswordReset.findOne({
+      ownerId: owner._id,
+      token: hashedOTP,
+      used: false,
+      expiresAt: { $gt: new Date() },
+    });
+
+    if (!resetRecord) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid or expired OTP",
+      });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    owner.password = hashedPassword;
+    await owner.save();
+
+    resetRecord.used = true;
+    await resetRecord.save();
+
+    // Send confirmation email
+    await sendEmail({
+      to: email,
+      subject: "Password Reset Successful - Onligro",
+      html: `
+        <h2>✅ Password Reset Successful</h2>
+        <p>Your password has been changed successfully.</p>
+        <p>If you didn't do this, please contact support immediately.</p>
+        <hr />
+        <p style="color: #888; font-size: 12px;">Onligro - Salon Management</p>
+      `,
+    });
+
+    res.json({
+      success: true,
+      message: "Password reset successfully",
+    });
+
+  } catch (error) {
+    console.error("Reset password error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to reset password",
     });
   }
 });
