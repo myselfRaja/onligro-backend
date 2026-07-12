@@ -79,32 +79,40 @@ router.get("/:id", authMiddleware, async (req, res) => {
 });
 
 // CREATE BILL
+// CREATE BILL
 router.post("/add", authMiddleware, async (req, res) => {
-let session;
+  let session;
   try {
-     session = await mongoose.startSession();
-session.startTransaction();
-   const {
-  customerName,
-  customerPhone,
-  services,
-  staffId,
-  finalAmount,
-  paymentMode,
-  products,
-} = req.body;
+    session = await mongoose.startSession();
+    session.startTransaction();
+    
+    const {
+      customerName,
+      customerPhone,
+      services,
+      staffId,
+      finalAmount,
+      paymentMode,
+      products,
+    } = req.body;
 
-    // Validation
+    // ===== 🔥 CHANGE 1: VALIDATION =====
     if (
       !customerName ||
       !customerPhone ||
-      !services?.length ||
       !staffId ||
       !paymentMode ||
-       finalAmount === undefined
+      finalAmount === undefined
     ) {
       return res.status(400).json({
         message: "All required fields must be provided",
+      });
+    }
+
+    // 🔥 NEW: Service OR Product check
+    if ((!services || services.length === 0) && (!products || products.length === 0)) {
+      return res.status(400).json({
+        message: "Please select at least one service or product",
       });
     }
 
@@ -131,176 +139,180 @@ session.startTransaction();
       });
     }
 
-    // Fetch selected services
-    const selectedServices = await Service.find({
-      _id: { $in: services },
-      salonId: salon._id,
-    });
-let billProducts = [];
+    // ===== FETCH SERVICES (ONLY IF PROVIDED) =====
+    let billServices = [];
+    let serviceTotal = 0;
 
-if (products?.length > 0) {
-  const selectedProducts = await Product.find({
-    _id: { $in: products.map(p => p.productId) },
-    salonId: salon._id,
-  });
+    if (services && services.length > 0) {
+      const selectedServices = await Service.find({
+        _id: { $in: services },
+        salonId: salon._id,
+      });
 
-  if (selectedProducts.length !== products.length) {
-    return res.status(400).json({
-      message: "One or more products are invalid",
-    });
-  }
+      // ===== 🔥 CHANGE 2: SERVICE VALIDATION =====
+      if (selectedServices.length !== services.length) {
+        return res.status(400).json({
+          message: "One or more services are invalid",
+        });
+      }
 
-  billProducts = products.map((p) => {
-    const product = selectedProducts.find(
-      (sp) => sp._id.toString() === p.productId
-    );
+      billServices = selectedServices.map((service) => ({
+        serviceId: service._id,
+        serviceName: service.name,
+        price: service.price,
+        duration: service.duration,
+      }));
 
-    return {
-      productId: product._id,
-      productName: product.name,
-      price: product.mrp,
-      quantity: p.quantity,
-      total: product.mrp * p.quantity,
-    };
-  });
-}
-    if (selectedServices.length !== services.length) {
+      serviceTotal = selectedServices.reduce(
+        (sum, service) => sum + service.price,
+        0
+      );
+    }
+
+    // ===== FETCH PRODUCTS (ONLY IF PROVIDED) =====
+    let billProducts = [];
+    let productTotal = 0;
+
+    if (products && products.length > 0) {
+      const selectedProducts = await Product.find({
+        _id: { $in: products.map(p => p.productId) },
+        salonId: salon._id,
+      });
+
+      if (selectedProducts.length !== products.length) {
+        return res.status(400).json({
+          message: "One or more products are invalid",
+        });
+      }
+
+      // Check stock
+      for (const item of products) {
+        const product = await Product.findOne({
+          _id: item.productId,
+          salonId: salon._id,
+        });
+
+        if (!product) {
+          return res.status(404).json({
+            message: "Product not found",
+          });
+        }
+
+        if (product.stockQuantity < item.quantity) {
+          return res.status(400).json({
+            message: `${product.name} stock unavailable`,
+          });
+        }
+
+        product.stockQuantity -= item.quantity;
+        await product.save();
+      }
+
+      billProducts = products.map((p) => {
+        const product = selectedProducts.find(
+          (sp) => sp._id.toString() === p.productId
+        );
+
+        return {
+          productId: product._id,
+          productName: product.name,
+          price: product.mrp,
+          quantity: p.quantity,
+          total: product.mrp * p.quantity,
+        };
+      });
+
+      productTotal = billProducts.reduce(
+        (sum, product) => sum + product.total,
+        0
+      );
+    }
+
+    // ===== CALCULATE TOTAL =====
+    const totalAmount = serviceTotal + productTotal;
+
+    if (Number(finalAmount) < 0) {
       return res.status(400).json({
-        message: "One or more services are invalid",
+        message: "Final amount must be greater than 0",
       });
     }
-
-    // Calculate total
-    const serviceTotal = selectedServices.reduce(
-  (sum, service) => sum + service.price,
-  0
-);
-
-const productTotal = billProducts.reduce(
-  (sum, product) => sum + product.total,
-  0
-);
-
-const totalAmount = serviceTotal + productTotal;
-if (Number(finalAmount) < 0) {
-  return res.status(400).json({
-    message: "Final amount must be greater than 0",
-  });
-}
-
-// Check product stock and deduct
-if (products?.length > 0) {
-  for (const item of products) {
-    const product = await Product.findOne({
-      _id: item.productId,
-      salonId: salon._id,
-    });
-
-    if (!product) {
-      return res.status(404).json({
-        message: "Product not found",
-      });
-    }
-
-    if (product.stockQuantity < item.quantity) {
-      return res.status(400).json({
-        message: `${product.name} stock unavailable`,
-      });
-    }
-
-    product.stockQuantity -= item.quantity;
-
-    await product.save();
-  }
-}
-
 
     // Generate bill number
     const billNumber = await generateBillNumber();
-
-    // Service snapshot
-    const billServices = selectedServices.map((service) => ({
-      serviceId: service._id,
-      serviceName: service.name,
-      price: service.price,
-      duration: service.duration,
-    }));
 
     // Create bill
     const bill = await Bill.create({
       salonId: salon._id,
       ownerId: req.owner._id,
-
       billNumber,
-
       customerName,
       customerPhone,
-
       services: billServices,
       products: billProducts,
-
       staffId: staff._id,
       staffName: staff.name,
-totalAmount,
-
-taxAmount: 0,
-
-finalAmount: Number(finalAmount),
-
+      totalAmount,
+      taxAmount: 0,
+      finalAmount: Number(finalAmount),
       paymentMode,
     });
-await Staff.updateOne(
-  {
-    _id: staff._id,
-    salonId: salon._id,
-  },
-  {
-    $inc: {
-      bookingCount: 1,
-      revenue: Number(finalAmount),
-    },
-  }
-);
-await Customer.findOneAndUpdate(
-  {
-    salonId: salon._id,
-    phone: customerPhone,
-  },
-  {
-    $set: {
-      name: customerName,
-      phone: customerPhone,
-      salonId: salon._id,
-       lastVisit: new Date(),
-    },
-    $inc: {
-      totalVisits: 1,
-     totalSpent: Math.max(0, Number(finalAmount)),
-    },
-  },
-  { upsert: true, new: true }
-);
 
-const populatedBill = await Bill.findById(bill._id)
-  .populate("salonId", "name address");
+    // Update staff stats
+    await Staff.updateOne(
+      {
+        _id: staff._id,
+        salonId: salon._id,
+      },
+      {
+        $inc: {
+          bookingCount: 1,
+          revenue: Number(finalAmount),
+        },
+      }
+    );
 
-  await session.commitTransaction();
-session.endSession();
+    // Update customer stats
+    await Customer.findOneAndUpdate(
+      {
+        salonId: salon._id,
+        phone: customerPhone,
+      },
+      {
+        $set: {
+          name: customerName,
+          phone: customerPhone,
+          salonId: salon._id,
+          lastVisit: new Date(),
+        },
+        $inc: {
+          totalVisits: 1,
+          totalSpent: Math.max(0, Number(finalAmount)),
+        },
+      },
+      { upsert: true, new: true }
+    );
+
+    const populatedBill = await Bill.findById(bill._id)
+      .populate("salonId", "name address");
+
+    await session.commitTransaction();
+    session.endSession();
 
     res.status(201).json({
       message: "Bill created successfully",
-         bill: populatedBill,
+      bill: populatedBill,
     });
-} catch (err) {
-  if (session) {
-    await session.abortTransaction();
-    session.endSession();
-  }
 
-  res.status(500).json({
-    error: err.message,
-  });
-}
+  } catch (err) {
+    if (session) {
+      await session.abortTransaction();
+      session.endSession();
+    }
+
+    res.status(500).json({
+      error: err.message,
+    });
+  }
 });
 
 // DELETE BILL
