@@ -94,6 +94,8 @@ router.post("/add", authMiddleware, async (req, res) => {
       finalAmount,
       paymentMode,
       products,
+       discount,      // ← ADD
+  discountType, 
     } = req.body;
 
     // ===== 🔥 CHANGE 1: VALIDATION =====
@@ -143,30 +145,37 @@ router.post("/add", authMiddleware, async (req, res) => {
     let billServices = [];
     let serviceTotal = 0;
 
-    if (services && services.length > 0) {
-      const selectedServices = await Service.find({
-        _id: { $in: services },
-        salonId: salon._id,
-      });
+   if (services && services.length > 0) {
+  // 🔥 services array se sirf serviceId nikaalo
+  const serviceIds = services.map(item => item.serviceId);
+  
+  const selectedServices = await Service.find({
+    _id: { $in: serviceIds },  // ← SIRF IDs BHEJO
+    salonId: salon._id,
+  });
 
-      // ===== 🔥 CHANGE 2: SERVICE VALIDATION =====
-      if (selectedServices.length !== services.length) {
-        return res.status(400).json({
-          message: "One or more services are invalid",
-        });
-      }
+  if (selectedServices.length !== serviceIds.length) {
+    return res.status(400).json({
+      message: "One or more services are invalid",
+    });
+  }
 
-      billServices = selectedServices.map((service) => ({
-        serviceId: service._id,
-        serviceName: service.name,
-        price: service.price,
-        duration: service.duration,
-      }));
+  // 🔥 Frontend se aayi price use karo
+  billServices = services.map((item) => {
+    const service = selectedServices.find(s => s._id.toString() === item.serviceId);
+    const price = item.price !== undefined && Number(item.price) >= 0 
+      ? Number(item.price) 
+      : service.price;
+    return {
+      serviceId: service._id,
+      serviceName: service.name,
+      price: price,
+      duration: service.duration,
+    };
+  });
 
-      serviceTotal = selectedServices.reduce(
-        (sum, service) => sum + service.price,
-        0
-      );
+  serviceTotal = billServices.reduce((sum, s) => sum + s.price, 0);
+
     }
 
     // ===== FETCH PRODUCTS (ONLY IF PROVIDED) =====
@@ -208,24 +217,29 @@ router.post("/add", authMiddleware, async (req, res) => {
         await product.save();
       }
 
-      billProducts = products.map((p) => {
-        const product = selectedProducts.find(
-          (sp) => sp._id.toString() === p.productId
-        );
+    billProducts = products.map((p) => {
+  const product = selectedProducts.find(
+    (sp) => sp._id.toString() === p.productId
+  );
 
-        return {
-          productId: product._id,
-          productName: product.name,
-          price: product.mrp,
-          quantity: p.quantity,
-          total: product.mrp * p.quantity,
-        };
-      });
+  // 🔥 Custom price from frontend, fallback to MRP
+  const price = p.price !== undefined && Number(p.price) >= 0 
+    ? Number(p.price) 
+    : product.mrp;
 
-      productTotal = billProducts.reduce(
-        (sum, product) => sum + product.total,
-        0
-      );
+  return {
+    productId: product._id,
+    productName: product.name,
+    price: price,
+    quantity: p.quantity,
+    total: price * p.quantity,
+  };
+});
+
+productTotal = billProducts.reduce(
+  (sum, product) => sum + product.total,
+  0
+);
     }
 
     // ===== CALCULATE TOTAL =====
@@ -240,22 +254,23 @@ router.post("/add", authMiddleware, async (req, res) => {
     // Generate bill number
     const billNumber = await generateBillNumber();
 
-    // Create bill
-    const bill = await Bill.create({
-      salonId: salon._id,
-      ownerId: req.owner._id,
-      billNumber,
-      customerName,
-      customerPhone,
-      services: billServices,
-      products: billProducts,
-      staffId: staff._id,
-      staffName: staff.name,
-      totalAmount,
-      taxAmount: 0,
-      finalAmount: Number(finalAmount),
-      paymentMode,
-    });
+  const bill = await Bill.create({
+  salonId: salon._id,
+  ownerId: req.owner._id,
+  billNumber,
+  customerName,
+  customerPhone,
+  services: billServices,
+  products: billProducts,
+  staffId: staff._id,
+  staffName: staff.name,
+  totalAmount,
+  discount: discount || 0,           // ← ADD
+  discountType: discountType || 'flat', // ← ADD
+  taxAmount: 0,
+  finalAmount: Number(finalAmount),
+  paymentMode,
+});
 
     // Update staff stats
     await Staff.updateOne(

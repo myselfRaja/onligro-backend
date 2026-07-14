@@ -74,20 +74,23 @@ products: [
       type: String,
       required: true,
     },
-    staffId: {
-  type: mongoose.Schema.Types.ObjectId,
-  ref: "Staff"
-},
+
 
     totalAmount: {
       type: Number,
       required: true,
     },
 
-    discount: {
-      type: Number,
-      default: 0,
-    },
+  discount: {
+  type: Number,
+  default: 0,
+},
+
+discountType: {
+  type: String,
+  enum: ["flat", "percent"],
+  default: "flat",
+},
 
     taxAmount: {
       type: Number,
