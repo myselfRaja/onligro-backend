@@ -42,6 +42,25 @@ router.get("/all", authMiddleware, async (req, res) => {
   }
 });
 
+// GET SINGLE BILL - PUBLIC (No Auth)
+router.get("/:id", async (req, res) => {
+  try {
+   
+    
+    const bill = await Bill.findById(req.params.id)
+      .populate("salonId", "name address phone");
+    
+    if (!bill) {
+      return res.status(404).json({ message: "Bill not found" });
+    }
+    
+    res.json({ bill });
+  } catch (err) {
+    console.error("❌ Error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET SINGLE BILL
 router.get("/:id", authMiddleware, async (req, res) => {
   try {
@@ -342,8 +361,6 @@ router.delete("/:id", authMiddleware, async (req, res) => {
       _id: req.params.id,
       salonId: salon._id,
     });
-
-    console.log("Bill products:", bill.products);
 
     if (!bill) {
       return res.status(404).json({ message: "Bill not found" });
