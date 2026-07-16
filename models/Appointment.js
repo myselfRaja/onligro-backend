@@ -47,15 +47,19 @@ const appointmentSchema = new mongoose.Schema(
       required: true,
     },
     
-finalAmount: {
-  type: Number,
-  default: null,
-},
     totalDuration: {
       type: Number,
       required: true,
     },
-
+billGenerated: {
+  type: Boolean,
+  default: false,
+},
+billId: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: "Bill",
+  default: null,
+},
     startAt: {
       type: Date,
       required: true,

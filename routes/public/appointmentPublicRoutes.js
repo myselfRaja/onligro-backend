@@ -44,7 +44,7 @@ router.get("/:appointmentId", async (req, res) => {
 // PUBLIC - CREATE APPOINTMENT (your existing route)
 router.post("/create", async (req, res) => {
   try {
-const { salonId, services, date, time, customerName, customerPhone, staffId, finalAmount } = req.body;
+const { salonId, services, date, time, customerName, customerPhone, staffId } = req.body;
 
     // Validation
     if (!salonId || !services || services.length === 0 || !date || !time) {
@@ -124,20 +124,19 @@ else {
 }
 
     // 5) Save appointment
-    const newAppointment = await Appointment.create({
-      salonId,
-      ownerId,
-      staffId: assignedStaff._id,
-      customerName,
-      customerPhone,
-      services,
-      totalPrice,
-     finalAmount: Number(finalAmount) || totalPrice,
-      totalDuration,
-      startAt,
-      endAt,
-      status: "confirmed",
-    });
+ const newAppointment = await Appointment.create({
+  salonId,
+  ownerId,
+  staffId: assignedStaff._id,
+  customerName,
+  customerPhone,
+  services,
+  totalPrice,
+  totalDuration,
+  startAt,
+  endAt,
+  status: "confirmed",
+});
 
     // Populate the newly created appointment for response
     const populatedAppointment = await Appointment.findById(newAppointment._id)
@@ -147,7 +146,11 @@ else {
 
     // 6) Emit real-time slot update
     req.io?.emit("slots_update", { salonId, date });
-
+  // 🔥 Emit for dashboard real-time update
+    req.io?.emit("new_appointment", {
+      salonId,
+      appointment: populatedAppointment,
+    });
     return res.json({
       message: "Appointment booked successfully!",
       appointment: populatedAppointment,

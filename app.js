@@ -89,7 +89,7 @@ app.use((req, res, next) => {
 
 // socket connection
 io.on("connection", (socket) => {
-  console.log("Socket connected:", socket.id);
+  // console.log("Socket connected:", socket.id);
 });
 
 // --------------------------

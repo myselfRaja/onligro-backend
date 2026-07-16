@@ -8,7 +8,7 @@ import { Staff } from "../models/Staff.js";
 import { Service } from "../models/Service.js";
 import { Customer } from "../models/Customer.js";
 import Product from "../models/Product.js";
-
+import { Appointment } from "../models/Appointment.js";
 import { generateBillNumber } from "../utils/generateBillNumber.js";
 
 const router = express.Router();
@@ -326,12 +326,29 @@ productTotal = billProducts.reduce(
       { upsert: true, new: true }
     );
 
+    // 🔥 Update Appointment - Mark as Billed
+if (req.body.appointmentId) {
+  await Appointment.findByIdAndUpdate(req.body.appointmentId, {
+    billGenerated: true,
+    billId: bill._id,
+  });
+}
+
     const populatedBill = await Bill.findById(bill._id)
       .populate("salonId", "name address");
 
     await session.commitTransaction();
     session.endSession();
+    
+ // 🔥 Real-time emit - Appointment updated
+    if (req.body.appointmentId) {
+      req.io.emit("appointment_updated", {
+        appointmentId: req.body.appointmentId,
+        status: "billed",
+      });
+    }
 
+    
     res.status(201).json({
       message: "Bill created successfully",
       bill: populatedBill,
