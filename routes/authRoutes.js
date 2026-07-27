@@ -1,51 +1,129 @@
-
 import express from "express";
 import bcrypt from "bcrypt";
 import crypto from "crypto";
 import jwt from "jsonwebtoken";
-import PasswordReset from "../models/PasswordReset.js";   // ✅ ADD THIS
+import PasswordReset from "../models/PasswordReset.js";
 import { sendEmail } from "../utils/email.js";    
 import { Owner } from "../models/Owner.js";
+import { Staff } from "../models/Staff.js";  // ✅ Import Staff
 
 const router = express.Router();
 
-// --------------------------
-// VERIFY AUTH
-// --------------------------
-router.get("/verify", async (req, res) => {
+// ===============================================
+// ✅ STAFF LOGIN (NEW ROUTE)
+// ===============================================
 
+router.post("/staff-login", async (req, res) => {
   try {
+    const { email, password } = req.body;
 
-    const token = req.cookies.token;
+    const staff = await Staff.findOne({ 
+      email: email.toLowerCase(),
+      loginEnabled: true,
+      isActive: true 
+    }).select("+password");
 
-    if (!token) {
-      return res.status(401).json({
-        message: "Not authenticated",
+    if (!staff) {
+      return res.status(400).json({ 
+        message: "Invalid credentials or login not enabled" 
       });
     }
 
-   const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-    const owner = await Owner.findById(decoded.id).select("-password");
-
-    if (!owner) {
-      return res.status(401).json({
-        message: "Owner not found",
-      });
+    const isMatch = await bcrypt.compare(password, staff.password);
+    if (!isMatch) {
+      return res.status(400).json({ message: "Invalid credentials" });
     }
 
-    return res.json({
-      success: true,
-      owner,
+    const token = jwt.sign(
+      { 
+        id: staff._id, 
+        email: staff.email, 
+        role: "staff",
+        salonId: staff.salonId 
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: "7d" }
+    );
+
+    // ✅ PRODUCTION COOKIE SETTINGS
+    const isProduction = process.env.NODE_ENV === "production";
+    res.cookie("token", token, {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: isProduction ? "none" : "lax",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+
+    const staffResponse = staff.toObject();
+    delete staffResponse.password;
+
+    res.json({
+      message: "Staff login successful",
+      staff: staffResponse
     });
 
   } catch (err) {
-
-    return res.status(401).json({
-      message: "Invalid token",
-    });
+    res.status(500).json({ error: err.message });
   }
 });
+
+// ===============================================
+// ✅ VERIFY AUTH (Modified to support both)
+// ===============================================
+
+router.get("/verify", async (req, res) => {
+  try {
+    const token = req.cookies.token;
+
+    if (!token) {
+      return res.status(401).json({ message: "Not authenticated" });
+    }
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    // ✅ Check if Owner
+    if (decoded.role === "owner") {
+      const owner = await Owner.findById(decoded.id).select("-password");
+      if (!owner) {
+        return res.status(401).json({ message: "Owner not found" });
+      }
+      const ownerData = { ...owner.toObject(), role: "owner" };
+      return res.json({
+        success: true,
+        user: ownerData,
+        owner: ownerData  // Backward compatible
+      });
+    }
+
+    // ✅ Check if Staff
+    if (decoded.role === "staff") {
+      const staff = await Staff.findById(decoded.id).select("-password");
+      if (!staff) {
+        return res.status(401).json({ message: "Staff not found" });
+      }
+      if (!staff.isActive) {
+        return res.status(401).json({ message: "Account deactivated" });
+      }
+      const staffData = { ...staff.toObject(), role: "staff" };
+      return res.json({
+        success: true,
+        user: staffData,
+        staff: staffData  // Backward compatible
+      });
+    }
+
+    return res.status(401).json({ message: "Invalid role" });
+
+  } catch (err) {
+    return res.status(401).json({ message: "Invalid token" });
+  }
+});
+
+// ===============================================
+// ✅ OTHER ROUTES (Unchanged)
+// ===============================================
+
+
 
 // 1. FORGOT PASSWORD – Send OTP
 // ======a======================================
@@ -283,7 +361,8 @@ router.post("/login", async (req, res) => {
 
     // JWT Token
     const token = jwt.sign(
-      { id: owner._id, email: owner.email },
+      { id: owner._id, email: owner.email, role: "owner" },
+
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
@@ -305,6 +384,7 @@ res.cookie("token", token, {
   email: owner.email,
   phone: owner.phone,
   createdAt: owner.createdAt,
+  role: "owner"   // ✅ YEH ADD KARO
 };
 
 return res.json({

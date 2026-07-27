@@ -146,10 +146,29 @@ router.post("/add", authMiddleware, async (req, res) => {
 // ========================
 router.get("/all", authMiddleware, async (req, res) => {
   try {
+    const { salonId } = req.query;
+    let targetSalonId = salonId;
+
+    // Agar salonId query mein nahi hai, toh owner/staff se nikaalo
+    if (!targetSalonId) {
+      if (req.owner) {
+        targetSalonId = req.owner.salonId;
+      } else if (req.staff) {
+        targetSalonId = req.staff.salonId;
+      }
+    }
+
+    if (!targetSalonId) {
+      return res.status(404).json({
+        success: false,
+        message: "Salon not found",
+      });
+    }
+
     const products = await Product.find({
-      salonId: req.owner.salonId,
-      isActive: true, // ✅ Only active products
-    }).sort({ createdAt: -1 }); // Latest first
+      salonId: targetSalonId,
+      isActive: true,
+    }).sort({ createdAt: -1 });
 
     res.status(200).json({
       success: true,

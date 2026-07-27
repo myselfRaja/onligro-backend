@@ -21,9 +21,25 @@ const staffSchema = new mongoose.Schema(
       default: "Staff"
     },
     isActive: {
-  type: Boolean,
-  default: true
-}
+      type: Boolean,
+      default: true
+    },
+    // ✅ NEW FIELDS (for staff login)
+    email: {
+      type: String,
+      sparse: true,    // ✅ Multiple null values allow
+      unique: true,
+      trim: true,
+      lowercase: true
+    },
+    password: {
+      type: String,
+      select: false    // ✅ Password never comes in queries by default
+    },
+    loginEnabled: {
+      type: Boolean,
+      default: false   // ✅ Staff can login only if owner enables
+    }
   },
   { timestamps: true }
 );

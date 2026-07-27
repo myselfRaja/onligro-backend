@@ -41,19 +41,24 @@ router.post("/add", authMiddleware, async (req, res) => {
 // GET ALL SERVICES OF OWNER
 router.get("/all", authMiddleware, async (req, res) => {
   try {
-    // Find salon of owner
-    const salon = await Salon.findOne({ ownerId: req.owner._id });
-    if (!salon) {
-      return res.status(400).json({ message: "Salon not found" });
+    const { salonId } = req.query;
+    let targetSalonId = salonId;
+
+    if (!targetSalonId) {
+      if (req.owner) {
+        const salon = await Salon.findOne({ ownerId: req.owner._id });
+        targetSalonId = salon?._id;
+      } else if (req.staff) {
+        targetSalonId = req.staff.salonId;
+      }
     }
 
-    // Get services linked to that salon
-    const services = await Service.find({ salonId: salon._id });
+    if (!targetSalonId) {
+      return res.status(404).json({ message: "Salon not found" });
+    }
 
-    res.json({
-      message: "Services fetched successfully",
-      services
-    });
+    const services = await Service.find({ salonId: targetSalonId });
+    res.json({ services });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

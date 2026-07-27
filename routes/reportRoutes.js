@@ -12,7 +12,12 @@ router.get("/summary", authMiddleware, async (req, res) => {
 
     const { startDate, endDate } = req.query;
 
-    const salonId = req.owner.salonId;
+  let salonId;
+if (req.owner) {
+  salonId = req.owner.salonId;
+} else if (req.staff) {
+  salonId = req.staff.salonId;
+}
 
     if (!salonId) {
       return res.status(400).json({
@@ -114,7 +119,12 @@ router.get("/revenue-overview", authMiddleware, async (req, res) => {
 
     const { startDate, endDate } = req.query;
 
-    const salonId = req.owner.salonId;
+  let salonId;
+if (req.owner) {
+  salonId = req.owner.salonId;
+} else if (req.staff) {
+  salonId = req.staff.salonId;
+}
 
     if (!salonId) {
       return res.status(400).json({
@@ -191,7 +201,12 @@ router.get("/top-services", authMiddleware, async (req, res) => {
 
     const { startDate, endDate } = req.query;
 
-    const salonId = req.owner.salonId;
+   let salonId;
+if (req.owner) {
+  salonId = req.owner.salonId;
+} else if (req.staff) {
+  salonId = req.staff.salonId;
+}
 
     if (!salonId) {
       return res.status(400).json({
@@ -270,7 +285,12 @@ router.get("/staff-performance", authMiddleware, async (req, res) => {
 
     const { startDate, endDate } = req.query;
 
-    const salonId = req.owner.salonId;
+   let salonId;
+if (req.owner) {
+  salonId = req.owner.salonId;
+} else if (req.staff) {
+  salonId = req.staff.salonId;
+}
 
     if (!salonId) {
       return res.status(400).json({
@@ -364,7 +384,12 @@ router.get("/peak-hours", authMiddleware, async (req, res) => {
 
     const { startDate, endDate } = req.query;
 
-    const salonId = req.owner.salonId;
+ let salonId;
+if (req.owner) {
+  salonId = req.owner.salonId;
+} else if (req.staff) {
+  salonId = req.staff.salonId;
+}
 
     if (!salonId) {
       return res.status(400).json({

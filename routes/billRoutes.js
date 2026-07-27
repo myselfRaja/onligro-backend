@@ -16,18 +16,27 @@ const router = express.Router();
 // GET ALL BILLS
 router.get("/all", authMiddleware, async (req, res) => {
   try {
-    const salon = await Salon.findOne({
-      ownerId: req.owner._id,
-    });
+    const { salonId } = req.query;
+    let targetSalonId = salonId;
 
-    if (!salon) {
+    // Agar salonId query mein nahi hai, toh owner/staff se nikaalo
+    if (!targetSalonId) {
+      if (req.owner) {
+        const salon = await Salon.findOne({ ownerId: req.owner._id });
+        targetSalonId = salon?._id;
+      } else if (req.staff) {
+        targetSalonId = req.staff.salonId;
+      }
+    }
+
+    if (!targetSalonId) {
       return res.status(404).json({
         message: "Salon not found",
       });
     }
 
     const bills = await Bill.find({
-      salonId: salon._id,
+      salonId: targetSalonId,
     }).sort({ createdAt: -1 });
 
     res.json({
@@ -138,15 +147,19 @@ router.post("/add", authMiddleware, async (req, res) => {
     }
 
     // Find salon
-    const salon = await Salon.findOne({
-      ownerId: req.owner._id,
-    });
+    // Find salon - Owner OR Staff
+let salon;
+if (req.owner) {
+  salon = await Salon.findOne({ ownerId: req.owner._id });
+} else if (req.staff) {
+  salon = await Salon.findOne({ _id: req.staff.salonId });
+}
 
-    if (!salon) {
-      return res.status(404).json({
-        message: "Salon not found",
-      });
-    }
+if (!salon) {
+  return res.status(404).json({
+    message: "Salon not found",
+  });
+}
 
     // Verify staff
     const staff = await Staff.findOne({
@@ -273,9 +286,11 @@ productTotal = billProducts.reduce(
     // Generate bill number
     const billNumber = await generateBillNumber();
 
+    const ownerId = req.owner ? req.owner._id : req.staff.ownerId;
+
   const bill = await Bill.create({
   salonId: salon._id,
-  ownerId: req.owner._id,
+  ownerId: ownerId,  // ✅ Yeh variable use karo
   billNumber,
   customerName,
   customerPhone,
