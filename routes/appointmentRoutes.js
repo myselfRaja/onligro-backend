@@ -115,7 +115,13 @@ return res.json({
 // ========================
 router.get("/all", authMiddleware, async (req, res) => {
   try {
-    const salon = await Salon.findOne({ ownerId: req.owner._id });
+    // ✅ Get salon from owner OR staff
+    let salon;
+    if (req.owner) {
+      salon = await Salon.findOne({ ownerId: req.owner._id });
+    } else if (req.staff) {
+      salon = await Salon.findOne({ _id: req.staff.salonId });
+    }
 
     if (!salon) {
       return res.status(400).json({ message: "Salon not found" });
