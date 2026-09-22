@@ -28,6 +28,40 @@ router.get("/all", authMiddleware, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// ===========================
+// ✅ SEARCH CUSTOMERS (Auto-suggest)
+// ===========================
+// ✅ SEARCH CUSTOMERS (Auto-suggest)
+// ===========================
+router.get("/search", authMiddleware, async (req, res) => {
+  try {
+    const { query } = req.query;
+
+    if (!query || query.length < 2) {
+      return res.json({ customers: [] });
+    }
+
+    const salon = await Salon.findOne({ ownerId: req.owner._id });
+    if (!salon) {
+      return res.status(404).json({ message: "Salon not found" });
+    }
+
+    const customers = await Customer.find({
+      salonId: salon._id,
+      $or: [
+        { name: { $regex: query, $options: "i" } },
+        { phone: { $regex: query, $options: "i" } },
+      ],
+    })
+      .limit(10)
+      .sort({ lastVisit: -1 });
+
+    res.json({ customers });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 // GET SINGLE CUSTOMER
 
 router.get("/:id", authMiddleware, async (req, res) => {

@@ -193,18 +193,18 @@ if (!salon) {
   }
 
   // 🔥 Frontend se aayi price use karo
-  billServices = services.map((item) => {
-    const service = selectedServices.find(s => s._id.toString() === item.serviceId);
-    const price = item.price !== undefined && Number(item.price) >= 0 
-      ? Number(item.price) 
-      : service.price;
-    return {
-      serviceId: service._id,
-      serviceName: service.name,
-      price: price,
-      duration: service.duration,
-    };
-  });
+billServices = services.map((item) => {
+  const service = selectedServices.find(s => s._id.toString() === item.serviceId);
+  const price = item.price !== undefined && Number(item.price) >= 0 
+    ? Number(item.price) 
+    : service.price;
+  return {
+    serviceId: service._id,
+    serviceName: item.serviceName || service.name, // ✅ Custom name use karo
+    price: price,
+    duration: service.duration,
+  };
+});
 
   serviceTotal = billServices.reduce((sum, s) => sum + s.price, 0);
 
@@ -249,19 +249,16 @@ if (!salon) {
         await product.save();
       }
 
-    billProducts = products.map((p) => {
+   billProducts = products.map((p) => {
   const product = selectedProducts.find(
     (sp) => sp._id.toString() === p.productId
   );
-
-  // 🔥 Custom price from frontend, fallback to MRP
   const price = p.price !== undefined && Number(p.price) >= 0 
     ? Number(p.price) 
     : product.mrp;
-
   return {
     productId: product._id,
-    productName: product.name,
+    productName: p.productName || product.name, // ✅ Custom name use karo
     price: price,
     quantity: p.quantity,
     total: price * p.quantity,
