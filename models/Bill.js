@@ -17,7 +17,7 @@ const billSchema = new mongoose.Schema(
     billNumber: {
       type: String,
       required: true,
-      unique: true,
+   
     },
 
     customerName: {
@@ -122,5 +122,6 @@ discountType: {
   },
   { timestamps: true }
 );
-
+// File ke end me (export se pehle) ye add karo
+billSchema.index({ salonId: 1, billNumber: 1 }, { unique: true });
 export const Bill = mongoose.model("Bill", billSchema);

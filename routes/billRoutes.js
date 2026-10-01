@@ -280,8 +280,8 @@ productTotal = billProducts.reduce(
       });
     }
 
-    // Generate bill number
-    const billNumber = await generateBillNumber();
+   // Generate bill number (per salon)
+const billNumber = await generateBillNumber(salon._id);
 
     const ownerId = req.owner ? req.owner._id : req.staff.ownerId;
 

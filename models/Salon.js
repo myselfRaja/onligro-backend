@@ -58,7 +58,12 @@ const salonSchema = new mongoose.Schema(
       type: String,
       default: "Unisex",
     },
+    billCounter: {
+  type: Number,
+  default: 0,
+},
   },
+  
   { timestamps: true }
 );
 
