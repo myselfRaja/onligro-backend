@@ -30,20 +30,44 @@ const billSchema = new mongoose.Schema(
       required: true,
     },
 
-    services: [
+       services: [
       {
         serviceId: {
           type: mongoose.Schema.Types.ObjectId,
           ref: "Service",
         },
-
         serviceName: String,
 
-        price: Number,
+        unit_price: {
+          type: Number,
+          required: true,
+        },
 
+        quantity: {
+          type: Number,
+          default: 1,
+          min: 1,
+        },
+
+        line_total: {
+          type: Number,
+          required: true,
+        },
+
+        staff_ids: [
+          {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Staff",
+          },
+        ],
+
+        staff_names: [String],
+
+        price: Number,
         duration: Number,
       },
     ],
+    
 products: [
   {
     productId: {

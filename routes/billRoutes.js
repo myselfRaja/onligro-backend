@@ -126,17 +126,37 @@ router.post("/add", authMiddleware, async (req, res) => {
   discountType, 
     } = req.body;
 
-    // ===== 🔥 CHANGE 1: VALIDATION =====
+        // ===== 🔥 CHANGE 1: VALIDATION =====
     if (
       !customerName ||
       !customerPhone ||
-      !staffId ||
       !paymentMode ||
       finalAmount === undefined
     ) {
       return res.status(400).json({
         message: "All required fields must be provided",
       });
+    }
+
+    // ✅ NEW: Har service me kam se kam 1 staff hona chahiye
+    // (sirf naye format ke liye — jisme staff_ids array hai)
+    const hasNewFormat = services && services.some(s => s.staff_ids !== undefined);
+    
+    if (hasNewFormat) {
+      for (const service of services) {
+        if (!service.staff_ids || service.staff_ids.length === 0) {
+          return res.status(400).json({
+            message: "Each service must have at least one staff assigned",
+          });
+        }
+      }
+    } else {
+      // ✅ Purana format — bill-level staffId required
+      if (!staffId) {
+        return res.status(400).json({
+          message: "Staff is required",
+        });
+      }
     }
 
     // 🔥 NEW: Service OR Product check
@@ -162,27 +182,29 @@ if (!salon) {
 }
 
     // Verify staff
-    const staff = await Staff.findOne({
-      _id: staffId,
-      salonId: salon._id,
-    });
-
-    if (!staff) {
-      return res.status(404).json({
-        message: "Staff not found",
+        // Verify staff (sirf purane format ke liye)
+    let staff = null;
+    if (staffId) {
+      staff = await Staff.findOne({
+        _id: staffId,
+        salonId: salon._id,
       });
+
+      if (!staff) {
+        return res.status(404).json({
+          message: "Staff not found",
+        });
+      }
     }
 
     // ===== FETCH SERVICES (ONLY IF PROVIDED) =====
     let billServices = [];
     let serviceTotal = 0;
-
    if (services && services.length > 0) {
-  // 🔥 services array se sirf serviceId nikaalo
   const serviceIds = services.map(item => item.serviceId);
   
   const selectedServices = await Service.find({
-    _id: { $in: serviceIds },  // ← SIRF IDs BHEJO
+    _id: { $in: serviceIds },
     salonId: salon._id,
   });
 
@@ -192,22 +214,45 @@ if (!salon) {
     });
   }
 
-  // 🔥 Frontend se aayi price use karo
-billServices = services.map((item) => {
-  const service = selectedServices.find(s => s._id.toString() === item.serviceId);
-  const price = item.price !== undefined && Number(item.price) >= 0 
-    ? Number(item.price) 
-    : service.price;
-  return {
-    serviceId: service._id,
-    serviceName: item.serviceName || service.name, // ✅ Custom name use karo
-    price: price,
-    duration: service.duration,
-  };
-});
+  // ✅ Naya format — quantity + line_total + staff_ids
+  billServices = services.map((item) => {
+    const service = selectedServices.find(s => s._id.toString() === item.serviceId);
+    
+    // Unit price (purana ya naya)
+    const unitPrice = item.unit_price !== undefined && Number(item.unit_price) >= 0
+      ? Number(item.unit_price)
+      : (item.price !== undefined && Number(item.price) >= 0 ? Number(item.price) : service.price);
+    
+    // Quantity (default 1)
+    const quantity = Math.max(1, Number(item.quantity) || 1);
+    
+    // Line total
+    const lineTotal = unitPrice * quantity;
 
-  serviceTotal = billServices.reduce((sum, s) => sum + s.price, 0);
+    // Staff assignment (naya ya purana format)
+    const staffIds = item.staff_ids && item.staff_ids.length > 0
+      ? item.staff_ids
+      : (staff ? [staff._id] : []);
+    
+    const staffNames = item.staff_names && item.staff_names.length > 0
+      ? item.staff_names
+      : (staff ? [staff.name] : []);
 
+    return {
+      serviceId: service._id,
+      serviceName: item.serviceName || service.name,
+      unit_price: unitPrice,
+      quantity: quantity,
+      line_total: lineTotal,
+      staff_ids: staffIds,
+      staff_names: staffNames,
+      // Backward compatibility
+      price: unitPrice,
+      duration: service.duration,
+    };
+  });
+
+  serviceTotal = billServices.reduce((sum, s) => sum + s.line_total, 0);
     }
 
     // ===== FETCH PRODUCTS (ONLY IF PROVIDED) =====
@@ -285,37 +330,74 @@ const billNumber = await generateBillNumber(salon._id);
 
     const ownerId = req.owner ? req.owner._id : req.staff.ownerId;
 
+   // ✅ Bill-level staff (sirf purane format ke liye)
+  // Naya format me har service ka apna staff_ids hai
+  let billStaffId = null;
+  let billStaffName = null;
+
+  if (staff) {
+    // Purana format — bill-level staff
+    billStaffId = staff._id;
+    billStaffName = staff.name;
+  } else if (billServices.length > 0 && billServices[0].staff_ids.length > 0) {
+    // Naya format — pehle service ka pehla staff as reference
+    const firstStaffId = billServices[0].staff_ids[0];
+    const firstStaff = await Staff.findById(firstStaffId);
+    if (firstStaff) {
+      billStaffId = firstStaff._id;
+      billStaffName = firstStaff.name;
+    }
+  }
+
   const bill = await Bill.create({
   salonId: salon._id,
-  ownerId: ownerId,  // ✅ Yeh variable use karo
+  ownerId: ownerId,
   billNumber,
   customerName,
   customerPhone,
   services: billServices,
   products: billProducts,
-  staffId: staff._id,
-  staffName: staff.name,
+  staffId: billStaffId,        // ✅ Optional
+  staffName: billStaffName,    // ✅ Optional
   totalAmount,
-  discount: discount || 0,           // ← ADD
-  discountType: discountType || 'flat', // ← ADD
+  discount: discount || 0,
+  discountType: discountType || 'flat',
   taxAmount: 0,
   finalAmount: Number(finalAmount),
   paymentMode,
 });
-
     // Update staff stats
-    await Staff.updateOne(
-      {
-        _id: staff._id,
-        salonId: salon._id,
-      },
-      {
-        $inc: {
-          bookingCount: 1,
-          revenue: Number(finalAmount),
-        },
+       // ✅ Update staff stats — per-service equal split
+    const staffRevenueMap = {};
+
+    for (const service of billServices) {
+      const staffCount = service.staff_ids.length;
+      if (staffCount === 0) continue;
+
+      const share = service.line_total / staffCount;
+
+      for (const staffIdItem of service.staff_ids) {
+        const id = staffIdItem.toString();
+        if (!staffRevenueMap[id]) {
+          staffRevenueMap[id] = { revenue: 0, services: 0 };
+        }
+        staffRevenueMap[id].revenue += share;
+        staffRevenueMap[id].services += service.quantity || 1;
       }
-    );
+    }
+
+    // Ab har staff ko update karo
+    for (const [staffIdKey, data] of Object.entries(staffRevenueMap)) {
+      await Staff.updateOne(
+        { _id: staffIdKey, salonId: salon._id },
+        {
+          $inc: {
+            bookingCount: data.services,
+            revenue: data.revenue,
+          },
+        }
+      );
+    }
 
     // Update customer stats
     await Customer.findOneAndUpdate(
@@ -407,16 +489,37 @@ router.delete("/:id", authMiddleware, async (req, res) => {
     );
 
     // ✅ Update staff stats (deduct bill amount)
-    await Staff.updateOne(
-      { _id: bill.staffId, salonId: salon._id },
-      {
-        $inc: {
-          bookingCount: -1,
-          revenue: -(bill.finalAmount || 0),
-        },
-      }
-    );
+    // ✅ Update staff stats — per-service equal split (reverse)
+    const staffRevenueMap = {};
 
+    for (const service of bill.services || []) {
+      const staffCount = (service.staff_ids || []).length;
+      if (staffCount === 0) continue;
+
+      const share = (service.line_total || service.price * (service.quantity || 1)) / staffCount;
+
+      for (const staffIdItem of service.staff_ids) {
+        const id = staffIdItem.toString();
+        if (!staffRevenueMap[id]) {
+          staffRevenueMap[id] = { revenue: 0, services: 0 };
+        }
+        staffRevenueMap[id].revenue += share;
+        staffRevenueMap[id].services += service.quantity || 1;
+      }
+    }
+
+    // Ab har staff ko deduct karo
+    for (const [staffIdKey, data] of Object.entries(staffRevenueMap)) {
+      await Staff.updateOne(
+        { _id: staffIdKey, salonId: salon._id },
+        {
+          $inc: {
+            bookingCount: -data.services,
+            revenue: -data.revenue,
+          },
+        }
+      );
+    }
     // Restore product stock when bill is deleted
 if (bill.products?.length > 0) {
   for (const item of bill.products) {

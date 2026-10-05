@@ -39,7 +39,16 @@ const staffSchema = new mongoose.Schema(
     loginEnabled: {
       type: Boolean,
       default: false   // ✅ Staff can login only if owner enables
-    }
+    },
+
+  revenue: {
+      type: Number,
+      default: 0,
+    },
+    bookingCount: {
+      type: Number,
+      default: 0,
+    },
   },
   { timestamps: true }
 );
