@@ -1,5 +1,6 @@
 import express from "express";
 import { Bill } from "../models/Bill.js";
+import { Staff } from "../models/Staff.js";
 import { authMiddleware } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
@@ -315,51 +316,83 @@ if (req.owner) {
       };
     }
 
-  const data = await Bill.aggregate([
-  {
-    $match: matchCondition,
-  },
+const bills = await Bill.find(matchCondition).lean();
 
-  {
-    $group: {
-      _id: "$staffId",
-      bookings: {
-        $sum: 1,
-      },
-      revenue: {
-        $sum: "$finalAmount",
-      },
-    },
-  },
+const staffStats = {};
 
-  {
-    $lookup: {
-      from: "staffs",
-      localField: "_id",
-      foreignField: "_id",
-      as: "staff",
-    },
-  },
+for (const bill of bills) {
+  // OLD BILL
+  // Old bill mein staffId par poora finalAmount jayega
+  const isNewBill = bill.services?.some(
+    (service) =>
+      Array.isArray(service.staff_ids) && service.staff_ids.length > 0
+  );
 
-  {
-    $unwind: "$staff",
-  },
+  if (!isNewBill) {
+    if (!bill.staffId) continue;
 
-  {
-    $project: {
-      _id: 0,
-      name: "$staff.name",
-      bookings: 1,
-      revenue: 1,
-    },
-  },
+    const staffId = bill.staffId.toString();
 
-  {
-    $sort: {
-      revenue: -1,
-    },
-  },
-]);
+    if (!staffStats[staffId]) {
+      staffStats[staffId] = {
+        bookings: 0,
+        revenue: 0,
+      };
+    }
+
+    staffStats[staffId].bookings += 1;
+    staffStats[staffId].revenue += bill.finalAmount || 0;
+
+    continue;
+  }
+
+  // NEW BILL
+  // Har service ka revenue uske staff ke beech equally divide hoga
+  for (const service of bill.services || []) {
+    const staffIds = Array.isArray(service.staff_ids)
+      ? service.staff_ids
+      : [];
+
+    if (staffIds.length === 0) continue;
+
+    const share = (service.line_total || 0) / staffIds.length;
+
+    for (const staffIdItem of staffIds) {
+      const staffId = staffIdItem.toString();
+
+      if (!staffStats[staffId]) {
+        staffStats[staffId] = {
+          bookings: 0,
+          revenue: 0,
+        };
+      }
+
+      staffStats[staffId].revenue += share;
+      staffStats[staffId].bookings += service.quantity || 1;
+    }
+  }
+}
+
+// Staff details fetch karo
+const staffIds = Object.keys(staffStats);
+
+
+
+const staffList = await Staff.find({
+  _id: { $in: staffIds },
+}).lean();
+
+
+
+const data = staffList
+  .map((staff) => ({
+    name: staff.name,
+    bookings: staffStats[staff._id.toString()]?.bookings || 0,
+    revenue: Math.round(
+      staffStats[staff._id.toString()]?.revenue || 0
+    ),
+  }))
+  .sort((a, b) => b.revenue - a.revenue);
 
     res.json({
       success: true,
