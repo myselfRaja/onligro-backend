@@ -57,8 +57,8 @@ router.get("/:id", async (req, res) => {
    
     
     const bill = await Bill.findById(req.params.id)
-      .populate("salonId", "name address phone");
-    
+      .populate("salonId", "name address phone")
+      .populate("services.staff_ids", "name"); 
     if (!bill) {
       return res.status(404).json({ message: "Bill not found" });
     }
@@ -87,7 +87,8 @@ router.get("/:id", authMiddleware, async (req, res) => {
   _id: req.params.id,
   salonId: salon._id,
   
-}).populate("salonId", "name address");
+}).populate("salonId", "name address")
+  .populate("services.staff_ids", "name"); 
 
     if (!bill) {
       return res.status(404).json({
