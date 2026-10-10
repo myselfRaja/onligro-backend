@@ -281,132 +281,177 @@ if (req.owner) {
 
 // ==================== STAFF PERFORMANCE API ====================
 // ==================== STAFF PERFORMANCE API ====================
+// ==================== STAFF PERFORMANCE API ====================
 router.get("/staff-performance", authMiddleware, async (req, res) => {
   try {
-
     const { startDate, endDate } = req.query;
 
-   let salonId;
-if (req.owner) {
-  salonId = req.owner.salonId;
-} else if (req.staff) {
-  salonId = req.staff.salonId;
-}
+    let salonId;
+    if (req.owner) salonId = req.owner.salonId;
+    else if (req.staff) salonId = req.staff.salonId;
 
     if (!salonId) {
-      return res.status(400).json({
-        success: false,
-        message: "Salon not found",
-      });
+      return res.status(400).json({ success: false, message: "Salon not found" });
     }
 
     let matchCondition = { salonId };
 
+    // Timezone abhi purana hi (aapne bola rehne do)
     if (startDate && endDate) {
-
       const start = new Date(startDate);
-
       const end = new Date(endDate);
-
       end.setHours(23, 59, 59, 999);
-
-      matchCondition.createdAt = {
-        $gte: start,
-        $lte: end,
-      };
+      matchCondition.createdAt = { $gte: start, $lte: end };
     }
 
-const bills = await Bill.find(matchCondition).lean();
+    const bills = await Bill.find(matchCondition).lean();
 
-const staffStats = {};
+    // staffStats[staffId] = { actualRevenue, bookings, services }
+    const staffStats = {};
 
-for (const bill of bills) {
-  // OLD BILL
-  // Old bill mein staffId par poora finalAmount jayega
-  const isNewBill = bill.services?.some(
-    (service) =>
-      Array.isArray(service.staff_ids) && service.staff_ids.length > 0
-  );
-
-  if (!isNewBill) {
-    if (!bill.staffId) continue;
-
-    const staffId = bill.staffId.toString();
-
-    if (!staffStats[staffId]) {
-      staffStats[staffId] = {
-        bookings: 0,
-        revenue: 0,
-      };
-    }
-
-    staffStats[staffId].bookings += 1;
-    staffStats[staffId].revenue += bill.finalAmount || 0;
-
-    continue;
-  }
-
-  // NEW BILL
-  // Har service ka revenue uske staff ke beech equally divide hoga
-  for (const service of bill.services || []) {
-    const staffIds = Array.isArray(service.staff_ids)
-      ? service.staff_ids
-      : [];
-
-    if (staffIds.length === 0) continue;
-
-    const share = (service.line_total || 0) / staffIds.length;
-
-    for (const staffIdItem of staffIds) {
-      const staffId = staffIdItem.toString();
-
+    const ensureStaff = (staffId) => {
       if (!staffStats[staffId]) {
         staffStats[staffId] = {
+          actualRevenue: 0,
           bookings: 0,
-          revenue: 0,
+          services: {},
         };
       }
+    };
 
-      staffStats[staffId].revenue += share;
-      staffStats[staffId].bookings += service.quantity || 1;
+    const addService = (staffId, serviceName, count, actual) => {
+      const s = staffStats[staffId].services;
+      if (!s[serviceName]) {
+        s[serviceName] = { count: 0, actual: 0 };
+      }
+      s[serviceName].count += count;
+      s[serviceName].actual += actual;
+    };
+
+    for (const bill of bills) {
+      if (bill.billStatus === "cancelled") continue;
+
+      const services = bill.services || [];
+      const isNewBill = services.some(
+        (s) => Array.isArray(s.staff_ids) && s.staff_ids.length > 0
+      );
+
+      // ---------- OLD BILL ----------
+      // Poora finalAmount bill.staffId ko (locked)
+      if (!isNewBill) {
+        if (!bill.staffId) continue;
+
+        const staffId = bill.staffId.toString();
+        ensureStaff(staffId);
+
+        const amt = bill.finalAmount || 0;
+        staffStats[staffId].actualRevenue += amt;
+        staffStats[staffId].bookings += 1;
+
+        // Service breakdown (best effort — old bills mein data adhoora hai)
+        for (const svc of services) {
+          const name = svc.serviceName || "Unknown Service";
+          addService(staffId, name, 1, svc.price || 0);
+        }
+
+        continue;
+      }
+
+      // ---------- NEW BILL ----------
+      const totalAmount = bill.totalAmount || 0;
+      const finalAmount = bill.finalAmount || 0;
+      const discountRatio = totalAmount > 0 ? finalAmount / totalAmount : 1;
+
+      for (const svc of services) {
+        const staffIds = Array.isArray(svc.staff_ids) ? svc.staff_ids : [];
+        const qty = svc.quantity || 1;
+
+        const lineTotal =
+          svc.line_total ??
+          (svc.unit_price || svc.price || 0) * qty;
+
+        const actualTotal = lineTotal * discountRatio;
+        const serviceName = svc.serviceName || "Unknown Service";
+
+        if (staffIds.length === 0) {
+          // Unassigned
+          ensureStaff("unassigned");
+          staffStats["unassigned"].actualRevenue += actualTotal;
+          staffStats["unassigned"].bookings += qty;
+          addService("unassigned", serviceName, qty, actualTotal);
+          continue;
+        }
+
+        const actualPer = actualTotal / staffIds.length;
+
+        for (const sid of staffIds) {
+          const staffId = sid.toString();
+          ensureStaff(staffId);
+
+          staffStats[staffId].actualRevenue += actualPer;
+          staffStats[staffId].bookings += qty;
+          addService(staffId, serviceName, qty, actualPer);
+        }
+      }
     }
-  }
-}
 
-// Staff details fetch karo
-const staffIds = Object.keys(staffStats);
+    // Staff names bulk fetch
+    const realIds = Object.keys(staffStats).filter((id) => id !== "unassigned");
+    const staffDocs = await Staff.find({ _id: { $in: realIds } })
+      .select("name")
+      .lean();
 
+    const nameMap = {};
+    for (const s of staffDocs) nameMap[s._id.toString()] = s.name;
 
+    // Final array
+    const data = Object.entries(staffStats).map(([staffId, stats]) => {
+      const servicesArr = Object.entries(stats.services)
+        .map(([name, v]) => ({
+          serviceName: name,
+          count: v.count,
+          actualRevenue: Math.round(v.actual),
+        }))
+        .sort((a, b) => b.actualRevenue - a.actualRevenue);
 
-const staffList = await Staff.find({
-  _id: { $in: staffIds },
-}).lean();
+      return {
+        staffId: staffId === "unassigned" ? null : staffId,
+        staffName:
+          staffId === "unassigned"
+            ? "Unassigned"
+            : nameMap[staffId] || "Unknown",
+        actualRevenue: Math.round(stats.actualRevenue),
+        bookings: stats.bookings,
+        services: servicesArr,
+      };
+    });
 
+    data.sort((a, b) => {
+      if (a.staffId === null) return 1;
+      if (b.staffId === null) return -1;
+      return b.actualRevenue - a.actualRevenue;
+    });
 
-
-const data = staffList
-  .map((staff) => ({
-    name: staff.name,
-    bookings: staffStats[staff._id.toString()]?.bookings || 0,
-    revenue: Math.round(
-      staffStats[staff._id.toString()]?.revenue || 0
-    ),
-  }))
-  .sort((a, b) => b.revenue - a.revenue);
+    // ✅ TOTALS — data se sum karo (Qty mismatch fix)
+    const totals = data.reduce(
+      (acc, s) => {
+        acc.actualRevenue += s.actualRevenue;
+        acc.bookings += s.bookings;
+        return acc;
+      },
+      { actualRevenue: 0, bookings: 0 }
+    );
 
     res.json({
       success: true,
       data,
+      totals,
+      startDate: startDate || null,
+      endDate: endDate || null,
     });
-
   } catch (err) {
-
     console.log(err);
-
-    res.status(500).json({
-      success: false,
-    });
-
+    res.status(500).json({ success: false, message: "Server Error" });
   }
 });
 
