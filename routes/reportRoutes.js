@@ -279,6 +279,94 @@ if (req.owner) {
   }
 });
 
+// ==================== PRODUCT PERFORMANCE API ====================
+router.get("/product-performance", authMiddleware, async (req, res) => {
+  try {
+    const { startDate, endDate } = req.query;
+
+    let salonId;
+    if (req.owner) salonId = req.owner.salonId;
+    else if (req.staff) salonId = req.staff.salonId;
+
+    if (!salonId) {
+      return res.status(400).json({ success: false, message: "Salon not found" });
+    }
+
+    let matchCondition = { salonId };
+
+    // Timezone abhi purana hi (aapne bola rehne do)
+    if (startDate && endDate) {
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+      matchCondition.createdAt = { $gte: start, $lte: end };
+    }
+
+    const bills = await Bill.find(matchCondition).lean();
+
+    // productStats[productName] = { quantity, revenue, services: {} }
+    const productStats = {};
+    let totalProductRevenue = 0;
+
+    for (const bill of bills) {
+      if (bill.billStatus === "cancelled") continue;
+      if (!bill.products || bill.products.length === 0) continue;
+
+      // Discount ratio nikalo
+      const totalAmount = bill.totalAmount || 0;
+      const finalAmount = bill.finalAmount || 0;
+      const discountRatio = totalAmount > 0 ? finalAmount / totalAmount : 1;
+
+      for (const product of bill.products) {
+        const name = product.productName || "Unknown Product";
+        const qty = product.quantity || 1;
+        const revenue = (product.total || 0) * discountRatio;
+
+        if (!productStats[name]) {
+          productStats[name] = {
+            productName: name,
+            quantity: 0,
+            revenue: 0,
+          };
+        }
+
+        productStats[name].quantity += qty;
+        productStats[name].revenue += revenue;
+        totalProductRevenue += revenue;
+      }
+    }
+
+    // Array mein badlo aur sort karo (revenue descending)
+    const data = Object.values(productStats)
+      .map((p) => ({
+        productName: p.productName,
+        quantity: p.quantity,
+        revenue: Math.round(p.revenue),
+      }))
+      .sort((a, b) => b.revenue - a.revenue);
+
+    // Totals
+    const totals = data.reduce(
+      (acc, p) => {
+        acc.quantity += p.quantity;
+        acc.revenue += p.revenue;
+        return acc;
+      },
+      { quantity: 0, revenue: 0 }
+    );
+
+    res.json({
+      success: true,
+      data,
+      totals,
+      startDate: startDate || null,
+      endDate: endDate || null,
+    });
+  } catch (err) {
+    console.log(err);
+    res.status(500).json({ success: false, message: "Server Error" });
+  }
+});
 // ==================== STAFF PERFORMANCE API ====================
 // ==================== STAFF PERFORMANCE API ====================
 // ==================== STAFF PERFORMANCE API ====================
