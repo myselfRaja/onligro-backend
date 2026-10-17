@@ -59,9 +59,34 @@ const salonSchema = new mongoose.Schema(
       default: "Unisex",
     },
     billCounter: {
-  type: Number,
-  default: 0,
-},
+      type: Number,
+      default: 0,
+    },
+
+    // ✅ LOYALTY SETTINGS — YE ADD KARO
+    loyaltySettings: {
+      enabled: {
+        type: Boolean,
+        default: true,      // default true — sab salons me loyalty on
+      },
+      pointsPerRupee: {
+        type: Number,
+        default: 0.01,      // ₹100 pe 1 point
+      },
+      pointValue: {
+        type: Number,
+        default: 1,         // 1 point = ₹1
+      },
+       maxPointsPercent: {
+    type: Number,
+    default: 50,          // max 50% bill points se
+  },
+  dueLimit: {
+    type: Number,
+    default: 5000,        // max ₹5000 due
+  },
+
+    },
   },
   
   { timestamps: true }

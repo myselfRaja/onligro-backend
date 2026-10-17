@@ -10,6 +10,7 @@ import { Customer } from "../models/Customer.js";
 import Product from "../models/Product.js";
 import { Appointment } from "../models/Appointment.js";
 import { generateBillNumber } from "../utils/generateBillNumber.js";
+import { CustomerWallet } from "../models/CustomerWallet.js";
 
 const router = express.Router();
 
@@ -367,6 +368,138 @@ const billNumber = await generateBillNumber(salon._id);
   finalAmount: Number(finalAmount),
   paymentMode,
 });
+
+      // ===== ✅ LOYALTY: INDUSTRY-STANDARD LOGIC =====
+    // Step 1: Payable amount
+    let expectedDiscount = Number(discount) || 0;
+    if (discountType === "percent") {
+      expectedDiscount = (totalAmount * Number(discount)) / 100;
+    }
+    const payableAmount = Math.max(0, totalAmount - expectedDiscount);
+
+    // Step 2: Inputs sanitize
+    const pointsUsed = Math.max(0, Math.floor(Number(req.body.pointsUsed) || 0));
+    const balanceUsed = Math.max(0, Number(req.body.balanceUsed) || 0);
+    const dueAdded = Math.max(0, Number(req.body.dueAdded) || 0);
+    const cashPaid = Math.max(0, Number(finalAmount) || 0);
+
+    // Step 3: Total payment = payable amount
+    const totalPaid = pointsUsed + balanceUsed + dueAdded + cashPaid;
+    if (Math.abs(totalPaid - payableAmount) > 1) {
+      return res.status(400).json({
+        message: `Payment (₹${totalPaid}) bill amount (₹${payableAmount}) se match nahi kar raha.`,
+      });
+    }
+
+    // Step 4: Due + Cash ek saath nahi
+    if (dueAdded > 0 && cashPaid > 0) {
+      return res.status(400).json({
+        message: `Due aur Cash dono ek saath nahi ho sakte.`,
+      });
+    }
+
+    // Step 5: Payment mode consistency
+    if (dueAdded > 0 && paymentMode !== "Due") {
+      return res.status(400).json({
+        message: `Due ke saath payment mode "Due" hona chahiye.`,
+      });
+    }
+
+    if (dueAdded === 0 && paymentMode === "Due") {
+      return res.status(400).json({
+        message: `Payment mode "Due" hai lekin due amount 0 hai.`,
+      });
+    }
+
+    // ===== WALLET UPDATE =====
+    const loyaltySettings = salon.loyaltySettings || {};
+    const loyaltyEnabled = loyaltySettings.enabled || false;
+
+    if (loyaltyEnabled) {
+      let wallet = await CustomerWallet.findOne({
+        salonId: salon._id,
+        customerPhone,
+      });
+
+      if (!wallet) {
+        wallet = new CustomerWallet({
+          salonId: salon._id,
+          customerPhone,
+          customerName: customerName || "",
+        });
+      }
+
+      // Available check
+      if (pointsUsed > wallet.points) {
+        return res.status(400).json({
+          message: `Insufficient points. Available: ${wallet.points}, Requested: ${pointsUsed}`,
+        });
+      }
+
+      if (balanceUsed > wallet.balance) {
+        return res.status(400).json({
+          message: `Insufficient balance. Available: ₹${wallet.balance}, Requested: ₹${balanceUsed}`,
+        });
+      }
+
+      // 1. Points earn (cash paid pe)
+      const pointsPerRupee = loyaltySettings.pointsPerRupee || 0.01;
+      const pointsEarned = Math.floor(cashPaid * pointsPerRupee);
+
+      if (pointsEarned > 0) {
+        wallet.points += pointsEarned;
+        wallet.transactions.push({
+          type: "points_earned",
+          points: pointsEarned,
+          billId: bill._id,
+          note: `Earned on bill ${bill.billNumber}: ${pointsEarned} points`,
+        });
+      }
+
+      // 2. Points use
+      if (pointsUsed > 0) {
+        wallet.points -= pointsUsed;
+        wallet.transactions.push({
+          type: "points_redeemed",
+          points: pointsUsed,
+          billId: bill._id,
+          note: `Redeemed on bill ${bill.billNumber}: ${pointsUsed} points`,
+        });
+      }
+
+      // 3. Balance use
+      if (balanceUsed > 0) {
+        wallet.balance -= balanceUsed;
+        wallet.transactions.push({
+          type: "balance_used",
+          amount: balanceUsed,
+          billId: bill._id,
+          note: `Balance used on bill ${bill.billNumber}: ₹${balanceUsed}`,
+        });
+      }
+
+      // 4. Due add
+      if (dueAdded > 0) {
+        wallet.balance -= dueAdded;
+        wallet.transactions.push({
+          type: "due_added",
+          amount: dueAdded,
+          billId: bill._id,
+          note: `Due added on bill ${bill.billNumber}: ₹${dueAdded}`,
+        });
+      }
+
+      // Bill pe loyalty data save
+      bill.pointsEarned = pointsEarned;
+      bill.pointsUsed = pointsUsed;
+      bill.balanceUsed = balanceUsed;
+      bill.dueAdded = dueAdded;
+      await bill.save();
+
+      await wallet.save();
+    }
+    // ===== END LOYALTY =====
+    
     // Update staff stats
        // ✅ Update staff stats — per-service equal split
     const staffRevenueMap = {};
@@ -537,6 +670,66 @@ if (bill.products?.length > 0) {
     );
   }
 }
+
+    // ===== ✅ LOYALTY: WALLET REVERSE =====
+    const loyaltySettingsDelete = salon.loyaltySettings || {};
+    const loyaltyEnabledDelete = loyaltySettingsDelete.enabled || false;
+
+    if (loyaltyEnabledDelete) {
+      const walletToReverse = await CustomerWallet.findOne({
+        salonId: salon._id,
+        customerPhone: bill.customerPhone,
+      });
+
+      if (walletToReverse) {
+        // 1. Points earned wapas lo
+        if (bill.pointsEarned > 0) {
+          walletToReverse.points -= bill.pointsEarned;
+          walletToReverse.transactions.push({
+            type: "points_earned_reversed",
+            points: -bill.pointsEarned,
+            billId: bill._id,
+            note: `Bill ${bill.billNumber} deleted: ${bill.pointsEarned} points reversed`,
+          });
+        }
+
+        // 2. Points used wapas do
+        if (bill.pointsUsed > 0) {
+          walletToReverse.points += bill.pointsUsed;
+          walletToReverse.transactions.push({
+            type: "points_redeemed_reversed",
+            points: bill.pointsUsed,
+            billId: bill._id,
+            note: `Bill ${bill.billNumber} deleted: ${bill.pointsUsed} points restored`,
+          });
+        }
+
+        // 3. Balance used wapas do
+        if (bill.balanceUsed > 0) {
+          walletToReverse.balance += bill.balanceUsed;
+          walletToReverse.transactions.push({
+            type: "balance_used_reversed",
+            amount: bill.balanceUsed,
+            billId: bill._id,
+            note: `Bill ${bill.billNumber} deleted: ₹${bill.balanceUsed} balance restored`,
+          });
+        }
+
+        // 4. Due added wapas lo
+        if (bill.dueAdded > 0) {
+          walletToReverse.balance += bill.dueAdded;
+          walletToReverse.transactions.push({
+            type: "due_added_reversed",
+            amount: -bill.dueAdded,
+            billId: bill._id,
+            note: `Bill ${bill.billNumber} deleted: ₹${bill.dueAdded} due removed`,
+          });
+        }
+
+        await walletToReverse.save();
+      }
+    }
+    // ===== END LOYALTY REVERSE =====
     // ✅ Delete the bill
     await Bill.deleteOne({ _id: req.params.id });
 

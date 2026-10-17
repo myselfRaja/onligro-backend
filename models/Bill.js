@@ -127,16 +127,22 @@ discountType: {
     },
 
     paymentMode: {
-      type: String,
-      enum: ["Cash", "UPI", "Card"],
-      required: true,
-    },
+  type: String,
+  enum: ["Cash", "UPI", "Card", "Due"],
+  required: true,
+},
 
     billStatus: {
       type: String,
       enum: ["paid", "cancelled"],
       default: "paid",
     },
+
+    // ✅ Loyalty fields
+pointsUsed: { type: Number, default: 0 },
+pointsEarned: { type: Number, default: 0 },
+balanceUsed: { type: Number, default: 0 },
+dueAdded: { type: Number, default: 0 },
 
     appointmentId: {
       type: mongoose.Schema.Types.ObjectId,

@@ -31,6 +31,7 @@ import reminderRoutes from "./routes/reminderRoutes.js";
 import ProductRoutes from "./routes/ProductRoutes.js";
 import DistributorRoutes from "./routes/DistributorRoutes.js";
 import PurchaseRoutes from "./routes/PurchaseRoutes.js";
+import walletRoutes from "./routes/WalletRoutes.js";
 
 // PUBLIC ROUTES
 import appointmentPublicRoutes from "./routes/public/appointmentPublicRoutes.js";
@@ -125,6 +126,7 @@ app.use("/reminders", reminderRoutes);
 app.use("/products", ProductRoutes);
 app.use("/distributors", DistributorRoutes);
 app.use("/purchases", PurchaseRoutes);
+app.use("/wallet", walletRoutes);
 // --------------------------
 // PUBLIC ROUTES
 // --------------------------
