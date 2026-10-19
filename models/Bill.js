@@ -89,15 +89,15 @@ products: [
   },
 ],
     staffId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Staff",
-      required: true,
-    },
+  type: mongoose.Schema.Types.ObjectId,
+  ref: "Staff",
+  required: false,
+},
 
-    staffName: {
-      type: String,
-      required: true,
-    },
+staffName: {
+  type: String,
+  required: false,
+},
 
 
     totalAmount: {

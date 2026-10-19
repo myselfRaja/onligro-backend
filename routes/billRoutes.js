@@ -140,26 +140,31 @@ router.post("/add", authMiddleware, async (req, res) => {
       });
     }
 
-    // ✅ NEW: Har service me kam se kam 1 staff hona chahiye
-    // (sirf naye format ke liye — jisme staff_ids array hai)
-    const hasNewFormat = services && services.some(s => s.staff_ids !== undefined);
-    
-    if (hasNewFormat) {
-      for (const service of services) {
-        if (!service.staff_ids || service.staff_ids.length === 0) {
-          return res.status(400).json({
-            message: "Each service must have at least one staff assigned",
-          });
-        }
-      }
-    } else {
-      // ✅ Purana format — bill-level staffId required
-      if (!staffId) {
+  // ✅ NEW: Staff validation sirf tab jab services hon
+// Sirf products wale bill mein staff required nahi
+const hasServices = services && services.length > 0;
+
+if (hasServices) {
+  const hasNewFormat = services.some(s => s.staff_ids !== undefined);
+  
+  if (hasNewFormat) {
+    for (const service of services) {
+      if (!service.staff_ids || service.staff_ids.length === 0) {
         return res.status(400).json({
-          message: "Staff is required",
+          message: "Each service must have at least one staff assigned",
         });
       }
     }
+  } else {
+    // ✅ Purana format — bill-level staffId required
+    if (!staffId) {
+      return res.status(400).json({
+        message: "Staff is required",
+      });
+    }
+  }
+}
+// Agar sirf products hain — koi staff validation nahi
 
     // 🔥 NEW: Service OR Product check
     if ((!services || services.length === 0) && (!products || products.length === 0)) {
