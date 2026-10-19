@@ -2,6 +2,8 @@ import express from "express";
 import { authMiddleware } from "../middleware/authMiddleware.js";
 import { CustomerWallet } from "../models/CustomerWallet.js";
 import { Salon } from "../models/Salon.js";
+import { Bill } from "../models/Bill.js";
+import { Staff } from "../models/Staff.js";
 
 const router = express.Router();
 
@@ -101,6 +103,7 @@ router.post("/advance", authMiddleware, async (req, res) => {
 });
 
 // ==================== PAY DUE ====================
+// ==================== PAY DUE ====================
 router.post("/due/pay", authMiddleware, async (req, res) => {
   try {
     const { customerPhone, amount, note } = req.body;
@@ -151,6 +154,71 @@ router.post("/due/pay", authMiddleware, async (req, res) => {
         message: `Due is only ₹${dueAmount}`,
       });
     }
+
+    // ===== ✅ NEW: Due bills dhundo aur staff revenue badhao =====
+    const dueBills = await Bill.find({
+      salonId,
+      customerPhone,
+      dueAdded: { $gt: 0 },
+    }).sort({ createdAt: 1 });  // purane pehle
+
+    let remainingToCollect = payAmount;
+    const staffRevenueUpdates = {};  // { staffId: amount }
+
+    for (const bill of dueBills) {
+      if (remainingToCollect <= 0) break;
+      
+      const dueOnThisBill = bill.dueAdded || 0;
+      if (dueOnThisBill <= 0) continue;
+      
+      const collectedForThisBill = Math.min(dueOnThisBill, remainingToCollect);
+      remainingToCollect -= collectedForThisBill;
+      
+      // Is bill ke staff nikalo
+      const billStaffIds = [];
+      
+      // Naya format — per-service staff
+      if (bill.services && bill.services.length > 0) {
+        for (const service of bill.services) {
+          for (const sid of (service.staff_ids || [])) {
+            const id = sid.toString();
+            if (!billStaffIds.includes(id)) billStaffIds.push(id);
+          }
+        }
+      }
+      
+      // Purana format — bill level staff
+      if (billStaffIds.length === 0 && bill.staffId) {
+        billStaffIds.push(bill.staffId.toString());
+      }
+      
+      // Har staff ko equal share do
+      if (billStaffIds.length > 0) {
+        const sharePerStaff = collectedForThisBill / billStaffIds.length;
+        for (const sid of billStaffIds) {
+          if (!staffRevenueUpdates[sid]) staffRevenueUpdates[sid] = 0;
+          staffRevenueUpdates[sid] += sharePerStaff;
+        }
+      }
+      
+      // Bill ka due kam karo
+      bill.dueAdded = Math.max(0, bill.dueAdded - collectedForThisBill);
+      
+      // ✅ NEW: Bill ke finalAmount mein bhi add karo (dashboard ke liye)
+      // Kyunki dashboard revenue = finalAmount sum
+      bill.finalAmount = (bill.finalAmount || 0) + collectedForThisBill;
+      
+      await bill.save();
+    }
+
+    // Staff revenue update karo
+    for (const [staffId, revenue] of Object.entries(staffRevenueUpdates)) {
+      await Staff.updateOne(
+        { _id: staffId, salonId },
+        { $inc: { revenue: revenue } }
+      );
+    }
+    // ===== END NEW =====
 
     wallet.balance += payAmount;  // Due kam hoga
     wallet.transactions.push({
@@ -225,6 +293,49 @@ router.post("/membership", authMiddleware, async (req, res) => {
     await wallet.save();
 
     res.json({ success: true, wallet });
+  } catch (err) {
+    console.log(err);
+    res.status(500).json({ success: false, message: "Server Error" });
+  }
+});
+
+router.get("/transactions/today", authMiddleware, async (req, res) => {
+  try {
+    let salonId;
+    if (req.owner) {
+      const salon = await Salon.findOne({ ownerId: req.owner._id });
+      salonId = salon?._id;
+    } else if (req.staff) {
+      salonId = req.staff.salonId;
+    }
+
+    if (!salonId) {
+      return res.status(404).json({ success: false, message: "Salon not found" });
+    }
+
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date();
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const wallets = await CustomerWallet.find({ salonId });
+
+    let dueCollected = 0;
+    wallets.forEach((wallet) => {
+      (wallet.transactions || []).forEach((tx) => {
+        if (tx.type === "due_paid") {
+          const txDate = tx.createdAt || tx.date;
+          if (txDate) {
+            const d = new Date(txDate);
+            if (d >= startOfDay && d <= endOfDay) {
+              dueCollected += tx.amount || 0;
+            }
+          }
+        }
+      });
+    });
+
+    res.json({ success: true, dueCollected });
   } catch (err) {
     console.log(err);
     res.status(500).json({ success: false, message: "Server Error" });
