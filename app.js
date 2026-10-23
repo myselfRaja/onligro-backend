@@ -12,6 +12,7 @@ import cookieParser from "cookie-parser";
 import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
+import mongoSanitize from "@exortek/express-mongo-sanitize";
 import mongoose from "mongoose";
 import { createServer } from "http";
 import { Server } from "socket.io";
@@ -95,6 +96,7 @@ app.use(cors({
 }));
 
 app.use(express.json());
+app.use(mongoSanitize());  
 app.use(cookieParser());
 
 // --------------------------
@@ -191,10 +193,36 @@ app.get("/", (req, res) => {
 });
 
 // --------------------------
+// 404 HANDLER
+// --------------------------
+app.use((req, res) => {
+  res.status(404).json({
+    error: "Route not found",
+    path: req.originalUrl,
+  });
+});
+
+// --------------------------
+// GLOBAL ERROR HANDLER
+// --------------------------
+app.use((err, req, res, next) => {
+  console.error("❌ Server Error:", err.message);
+  
+  if (err.message === "CORS blocked") {
+    return res.status(403).json({ error: "Not allowed by CORS" });
+  }
+  
+  res.status(err.status || 500).json({
+    error: process.env.NODE_ENV === "production" 
+      ? "Something went wrong" 
+      : err.message,
+  });
+});
+
+// --------------------------
 // SERVER START
 // --------------------------
 const PORT = process.env.PORT || 5000;
-
 httpServer.listen(PORT, () => {
   console.log("Server running on port", PORT);
 });
