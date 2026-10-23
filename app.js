@@ -10,6 +10,8 @@ dotenv.config();
 import express from "express";
 import cookieParser from "cookie-parser";
 import cors from "cors";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
 import mongoose from "mongoose";
 import { createServer } from "http";
 import { Server } from "socket.io";
@@ -45,6 +47,7 @@ import salonImageUploadRoutes from "./routes/public/salonImageUpload.js";
 // --------------------------
 const app = express();
 
+app.set("trust proxy", 1);
 // --------------------------
 // MIDDLEWARES
 // --------------------------
@@ -53,6 +56,34 @@ const allowedOrigins = [
   "https://onligro.com",
   "https://www.onligro.com"
 ];
+app.use(helmet());
+
+// ✅ RATE LIMITERS
+// General limit — 15 min mein 100 requests per IP
+const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,        // 15 minutes
+  max: 100,                         // 100 requests
+  message: { error: "Too many requests, please try again later" },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Strict limit — auth routes pe 15 min mein 5 attempts
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,                          // ← 5 se 10 kar do
+  message: { error: "Too many login attempts, please try again after 15 minutes" },
+  skipSuccessfulRequests: true,
+});
+
+// Bill creation limit — 1 min mein 30 bills
+const billLimiter = rateLimit({
+  windowMs: 60 * 1000,              // 1 minute
+  max: 30,
+  message: { error: "Too many bills, please slow down" },
+});
+
+    
 
 app.use(cors({
   origin: function (origin, callback) {
@@ -75,6 +106,7 @@ const io = new Server(httpServer, {
   cors: {
     origin: [
       "http://localhost:3000",
+      "https://onligro.com",          // ✅ Add kiya
       "https://www.onligro.com",
       "https://dashboard.onligro.com",
     ],
@@ -106,6 +138,13 @@ async function connectDB() {
 }
 
 connectDB();
+
+// --------------------------
+// RATE LIMITERS (routes se pehle)
+// --------------------------
+app.use("/auth", authLimiter);      // ✅ Login pe strict
+app.use("/bills", billLimiter);     // ✅ Bills pe limit
+app.use(generalLimiter);            // ✅ Baaki sab pe general
 
 // --------------------------
 // ROUTES
