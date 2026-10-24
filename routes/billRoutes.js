@@ -17,38 +17,46 @@ const router = express.Router();
 // GET ALL BILLS
 router.get("/all", authMiddleware, async (req, res) => {
   try {
-    const { salonId } = req.query;
-    let targetSalonId = salonId;
+    // ✅ salonId SIRF JWT se nikaalo — query se nahi
+    let targetSalonId;
 
-    // Agar salonId query mein nahi hai, toh owner/staff se nikaalo
-    if (!targetSalonId) {
-      if (req.owner) {
-        const salon = await Salon.findOne({ ownerId: req.owner._id });
-        targetSalonId = salon?._id;
-      } else if (req.staff) {
-        targetSalonId = req.staff.salonId;
-      }
+    if (req.owner) {
+      const salon = await Salon.findOne({ ownerId: req.owner._id });
+      targetSalonId = salon?._id;
+    } else if (req.staff) {
+      targetSalonId = req.staff.salonId;
     }
 
     if (!targetSalonId) {
-      return res.status(404).json({
-        message: "Salon not found",
-      });
+      return res.status(404).json({ message: "Salon not found" });
     }
 
-    const bills = await Bill.find({
-      salonId: targetSalonId,
-    }).sort({ createdAt: -1 });
+    // ✅ Pagination
+    const page = parseInt(req.query.page) || 1;
+    const limit = Math.min(parseInt(req.query.limit) || 50, 200);
+    const skip = (page - 1) * limit;
+
+    const [bills, totalCount] = await Promise.all([
+      Bill.find({ salonId: targetSalonId })
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      Bill.countDocuments({ salonId: targetSalonId }),
+    ]);
 
     res.json({
       message: "Bills fetched successfully",
       bills,
+      pagination: {
+        page,
+        limit,
+        total: totalCount,
+        totalPages: Math.ceil(totalCount / limit),
+      },
     });
-
   } catch (err) {
-    res.status(500).json({
-      error: err.message,
-    });
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -111,10 +119,9 @@ router.get("/:id", authMiddleware, async (req, res) => {
 // CREATE BILL
 // CREATE BILL
 router.post("/add", authMiddleware, async (req, res) => {
-  let session;
+ 
   try {
-    session = await mongoose.startSession();
-    session.startTransaction();
+  
     
     const {
       customerName,
@@ -279,11 +286,11 @@ if (!salon) {
       }
 
       // Check stock
+           // ✅ Sirf check karo — deduct baad mein
       for (const item of products) {
-        const product = await Product.findOne({
-          _id: item.productId,
-          salonId: salon._id,
-        });
+        const product = selectedProducts.find(
+          (sp) => sp._id.toString() === item.productId
+        );
 
         if (!product) {
           return res.status(404).json({
@@ -296,11 +303,7 @@ if (!salon) {
             message: `${product.name} stock unavailable`,
           });
         }
-
-        product.stockQuantity -= item.quantity;
-        await product.save();
       }
-
    billProducts = products.map((p) => {
   const product = selectedProducts.find(
     (sp) => sp._id.toString() === p.productId
@@ -356,7 +359,7 @@ const billNumber = await generateBillNumber(salon._id);
     }
   }
 
-  const bill = await Bill.create({
+   const bill = await Bill.create({
   salonId: salon._id,
   ownerId: ownerId,
   billNumber,
@@ -364,8 +367,8 @@ const billNumber = await generateBillNumber(salon._id);
   customerPhone,
   services: billServices,
   products: billProducts,
-  staffId: billStaffId,        // ✅ Optional
-  staffName: billStaffName,    // ✅ Optional
+  staffId: billStaffId,
+  staffName: billStaffName,
   totalAmount,
   discount: discount || 0,
   discountType: discountType || 'flat',
@@ -373,6 +376,28 @@ const billNumber = await generateBillNumber(salon._id);
   finalAmount: Number(finalAmount),
   paymentMode,
 });
+
+// ✅ Stock deduct AFTER bill created (atomic)
+if (billProducts.length > 0) {
+  for (const item of billProducts) {
+    const result = await Product.findOneAndUpdate(
+      { 
+        _id: item.productId, 
+        salonId: salon._id,
+        stockQuantity: { $gte: item.quantity }
+      },
+      { $inc: { stockQuantity: -item.quantity } }
+    );
+    
+    if (!result) {
+      // Rollback — bill delete karo
+      await Bill.deleteOne({ _id: bill._id });
+      return res.status(400).json({
+        message: `${item.productName} stock unavailable`,
+      });
+    }
+  }
+}
 
       // ===== ✅ LOYALTY: INDUSTRY-STANDARD LOGIC =====
     // Step 1: Payable amount
@@ -426,13 +451,14 @@ const billNumber = await generateBillNumber(salon._id);
         customerPhone,
       });
 
-      if (!wallet) {
-        wallet = new CustomerWallet({
-          salonId: salon._id,
-          customerPhone,
-          customerName: customerName || "",
-        });
-      }
+     if (!wallet) {
+  wallet = new CustomerWallet({
+    salonId: salon._id,
+    customerPhone,
+    customerName: customerName || "",
+  });
+  await wallet.save();   // ✅ Ye line add karo
+}
 
       // Available check
       if (pointsUsed > wallet.points) {
@@ -447,52 +473,62 @@ const billNumber = await generateBillNumber(salon._id);
         });
       }
 
-      // 1. Points earn (cash paid pe)
+          // ✅ Points earn (cash paid pe)
       const pointsPerRupee = loyaltySettings.pointsPerRupee || 0.01;
       const pointsEarned = Math.floor(cashPaid * pointsPerRupee);
 
+      // ✅ Build atomic update
+      const walletUpdate = {
+        $inc: {
+          points: pointsEarned - pointsUsed,
+          balance: -balanceUsed - dueAdded,
+        },
+      };
+
+      const transactions = [];
       if (pointsEarned > 0) {
-        wallet.points += pointsEarned;
-        wallet.transactions.push({
+        transactions.push({
           type: "points_earned",
           points: pointsEarned,
           billId: bill._id,
           note: `Earned on bill ${bill.billNumber}: ${pointsEarned} points`,
+          createdAt: new Date(),
         });
       }
-
-      // 2. Points use
       if (pointsUsed > 0) {
-        wallet.points -= pointsUsed;
-        wallet.transactions.push({
+        transactions.push({
           type: "points_redeemed",
           points: pointsUsed,
           billId: bill._id,
           note: `Redeemed on bill ${bill.billNumber}: ${pointsUsed} points`,
+          createdAt: new Date(),
         });
       }
-
-      // 3. Balance use
       if (balanceUsed > 0) {
-        wallet.balance -= balanceUsed;
-        wallet.transactions.push({
+        transactions.push({
           type: "balance_used",
           amount: balanceUsed,
           billId: bill._id,
           note: `Balance used on bill ${bill.billNumber}: ₹${balanceUsed}`,
+          createdAt: new Date(),
         });
       }
-
-      // 4. Due add
       if (dueAdded > 0) {
-        wallet.balance -= dueAdded;
-        wallet.transactions.push({
+        transactions.push({
           type: "due_added",
           amount: dueAdded,
           billId: bill._id,
           note: `Due added on bill ${bill.billNumber}: ₹${dueAdded}`,
+          createdAt: new Date(),
         });
       }
+
+      if (transactions.length > 0) {
+        walletUpdate.$push = { transactions: { $each: transactions } };
+      }
+
+      // ✅ Atomic wallet update
+      await CustomerWallet.updateOne({ _id: wallet._id }, walletUpdate);
 
       // Bill pe loyalty data save
       bill.pointsEarned = pointsEarned;
@@ -500,8 +536,6 @@ const billNumber = await generateBillNumber(salon._id);
       bill.balanceUsed = balanceUsed;
       bill.dueAdded = dueAdded;
       await bill.save();
-
-      await wallet.save();
     }
     // ===== END LOYALTY =====
     
@@ -570,8 +604,6 @@ if (req.body.appointmentId) {
     const populatedBill = await Bill.findById(bill._id)
       .populate("salonId", "name address");
 
-    await session.commitTransaction();
-    session.endSession();
     
  // 🔥 Real-time emit - Appointment updated
     if (req.body.appointmentId) {
@@ -587,12 +619,7 @@ if (req.body.appointmentId) {
       bill: populatedBill,
     });
 
-  } catch (err) {
-    if (session) {
-      await session.abortTransaction();
-      session.endSession();
-    }
-
+   } catch (err) {
     res.status(500).json({
       error: err.message,
     });

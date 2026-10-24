@@ -83,17 +83,26 @@ router.post("/advance", authMiddleware, async (req, res) => {
         customerPhone,
         customerName: customerName || "",
       });
+          await wallet.save(); 
     }
 
-    // ✅ Balance use karo
-    wallet.balance += Number(amount);
-    wallet.transactions.push({
-      type: "advance_added",
-      amount: Number(amount),
-      note: note || `Advance added: ₹${amount}`,
-    });
+  // ✅ Atomic update
+await CustomerWallet.updateOne(
+  { _id: wallet._id },
+  {
+    $inc: { balance: Number(amount) },
+    $push: {
+      transactions: {
+        type: "advance_added",
+        amount: Number(amount),
+        note: note || `Advance added: ₹${amount}`,
+        createdAt: new Date(),
+      },
+    },
+  }
+);
 
-    await wallet.save();
+wallet.balance += Number(amount);
 
     res.json({ success: true, wallet });
   } catch (err) {
@@ -220,14 +229,22 @@ router.post("/due/pay", authMiddleware, async (req, res) => {
     }
     // ===== END NEW =====
 
-    wallet.balance += payAmount;  // Due kam hoga
-    wallet.transactions.push({
-      type: "due_paid",
-      amount: payAmount,
-      note: note || `Due paid: ₹${payAmount}`,
-    });
+   await CustomerWallet.updateOne(
+  { _id: wallet._id },
+  {
+    $inc: { balance: payAmount },
+    $push: {
+      transactions: {
+        type: "due_paid",
+        amount: payAmount,
+        note: note || `Due paid: ₹${payAmount}`,
+        createdAt: new Date(),
+      },
+    },
+  }
+);
 
-    await wallet.save();
+wallet.balance += payAmount;
 
     res.json({ success: true, wallet });
   } catch (err) {
@@ -271,26 +288,37 @@ router.post("/membership", authMiddleware, async (req, res) => {
         customerPhone,
         customerName: customerName || "",
       });
+        await wallet.save();   
     }
 
-    // ✅ Membership → Points mein convert karo
-    wallet.points += Number(creditGiven);
-    wallet.membershipPackage = packageName || "Custom";
-    
-    // Expiry set karo
     const months = Number(expiryMonths) || 12;
-    const expiryDate = new Date();
-    expiryDate.setMonth(expiryDate.getMonth() + months);
-    wallet.membershipExpiry = expiryDate;
+const expiryDate = new Date();
+expiryDate.setMonth(expiryDate.getMonth() + months);
 
-    wallet.transactions.push({
-      type: "membership_purchased",
-      amount: Number(amountPaid),
-      points: Number(creditGiven),
-      note: `${packageName || "Membership"}: ₹${amountPaid} → ${creditGiven} points`,
-    });
+   // ✅ Atomic update for points + membership
+await CustomerWallet.updateOne(
+  { _id: wallet._id },
+  {
+    $inc: { points: Number(creditGiven) },
+    $set: {
+      membershipPackage: packageName || "Custom",
+      membershipExpiry: expiryDate,
+    },
+    $push: {
+      transactions: {
+        type: "membership_purchased",
+        amount: Number(amountPaid),
+        points: Number(creditGiven),
+        note: `${packageName || "Membership"}: ₹${amountPaid} → ${creditGiven} points`,
+        createdAt: new Date(),
+      },
+    },
+  }
+);
 
-    await wallet.save();
+wallet.points += Number(creditGiven);
+wallet.membershipPackage = packageName || "Custom";
+wallet.membershipExpiry = expiryDate;
 
     res.json({ success: true, wallet });
   } catch (err) {

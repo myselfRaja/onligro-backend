@@ -144,10 +144,11 @@ connectDB();
 // --------------------------
 // RATE LIMITERS (routes se pehle)
 // --------------------------
-app.use("/auth", authLimiter);      // ✅ Login pe strict
-app.use("/bills", billLimiter);     // ✅ Bills pe limit
-app.use(generalLimiter);            // ✅ Baaki sab pe general
-
+// ✅ Rate limiters — sirf specific routes pe
+app.use("/auth/login", authLimiter);      // ← sirf login
+app.use("/auth/register", authLimiter);   // ← sirf register
+app.use("/bills/add", billLimiter);       // ← sirf bill add
+app.use(generalLimiter);                   // ← baaki sab pe general
 // --------------------------
 // ROUTES
 // --------------------------
