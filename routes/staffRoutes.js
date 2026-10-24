@@ -40,29 +40,26 @@ router.post("/add", authMiddleware, async (req, res) => {
 // GET ALL STAFF OF OWNER
 router.get("/all", authMiddleware, async (req, res) => {
   try {
-    const { salonId } = req.query;
-    let targetSalonId = salonId;
+    // ✅ salonId SIRF JWT se nikaalo — query se nahi
+    let targetSalonId;
 
-    if (!targetSalonId) {
-      if (req.owner) {
-        const salon = await Salon.findOne({ ownerId: req.owner._id });
-        targetSalonId = salon?._id;
-      } else if (req.staff) {
-        targetSalonId = req.staff.salonId;
-      }
+    if (req.owner) {
+      const salon = await Salon.findOne({ ownerId: req.owner._id });
+      targetSalonId = salon?._id;
+    } else if (req.staff) {
+      targetSalonId = req.staff.salonId;
     }
 
     if (!targetSalonId) {
       return res.status(404).json({ message: "Salon not found" });
     }
 
-    const staffList = await Staff.find({ salonId: targetSalonId });
+    const staffList = await Staff.find({ salonId: targetSalonId }).lean();
     res.json({ message: "Staff fetched successfully", staff: staffList });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
-
 // TOGGLE STAFF STATUS
 router.put("/toggle-status/:id", authMiddleware, async (req, res) => {
   try {

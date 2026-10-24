@@ -41,23 +41,21 @@ router.post("/add", authMiddleware, async (req, res) => {
 // GET ALL SERVICES OF OWNER
 router.get("/all", authMiddleware, async (req, res) => {
   try {
-    const { salonId } = req.query;
-    let targetSalonId = salonId;
+    // ✅ salonId SIRF JWT se nikaalo — query se nahi
+    let targetSalonId;
 
-    if (!targetSalonId) {
-      if (req.owner) {
-        const salon = await Salon.findOne({ ownerId: req.owner._id });
-        targetSalonId = salon?._id;
-      } else if (req.staff) {
-        targetSalonId = req.staff.salonId;
-      }
+    if (req.owner) {
+      const salon = await Salon.findOne({ ownerId: req.owner._id });
+      targetSalonId = salon?._id;
+    } else if (req.staff) {
+      targetSalonId = req.staff.salonId;
     }
 
     if (!targetSalonId) {
       return res.status(404).json({ message: "Salon not found" });
     }
 
-    const services = await Service.find({ salonId: targetSalonId });
+    const services = await Service.find({ salonId: targetSalonId }).lean();
     res.json({ services });
   } catch (err) {
     res.status(500).json({ error: err.message });

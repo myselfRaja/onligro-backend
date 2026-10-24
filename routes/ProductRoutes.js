@@ -146,16 +146,13 @@ router.post("/add", authMiddleware, async (req, res) => {
 // ========================
 router.get("/all", authMiddleware, async (req, res) => {
   try {
-    const { salonId } = req.query;
-    let targetSalonId = salonId;
+    // ✅ salonId SIRF JWT se nikaalo — query se nahi
+    let targetSalonId;
 
-    // Agar salonId query mein nahi hai, toh owner/staff se nikaalo
-    if (!targetSalonId) {
-      if (req.owner) {
-        targetSalonId = req.owner.salonId;
-      } else if (req.staff) {
-        targetSalonId = req.staff.salonId;
-      }
+    if (req.owner) {
+      targetSalonId = req.owner.salonId;
+    } else if (req.staff) {
+      targetSalonId = req.staff.salonId;
     }
 
     if (!targetSalonId) {
@@ -168,7 +165,7 @@ router.get("/all", authMiddleware, async (req, res) => {
     const products = await Product.find({
       salonId: targetSalonId,
       isActive: true,
-    }).sort({ createdAt: -1 });
+    }).sort({ createdAt: -1 }).lean();
 
     res.status(200).json({
       success: true,
