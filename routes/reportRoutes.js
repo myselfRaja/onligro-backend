@@ -8,108 +8,149 @@ const router = express.Router();
 // ==================== SUMMARY API ====================
 // ==================== SUMMARY API ====================
 router.get("/summary", authMiddleware, async (req, res) => {
-  
   try {
-
     const { startDate, endDate } = req.query;
 
-  let salonId;
-if (req.owner) {
-  salonId = req.owner.salonId;
-} else if (req.staff) {
-  salonId = req.staff.salonId;
-}
+    let salonId;
+    if (req.owner) {
+      salonId = req.owner.salonId;
+    } else if (req.staff) {
+      salonId = req.staff.salonId;
+    }
 
     if (!salonId) {
-      return res.status(400).json({
-        success: false,
-        message: "Salon not found",
-      });
+      return res.status(400).json({ success: false, message: "Salon not found" });
     }
 
     let query = { salonId };
 
+    // ✅ Timezone fix — India time (+05:30)
     if (startDate && endDate) {
+      const start = new Date(`${startDate}T00:00:00.000+05:30`);
+      const end = new Date(`${endDate}T23:59:59.999+05:30`);
+      query.createdAt = { $gte: start, $lte: end };
+    }
 
-      const start = new Date(startDate);
+    // ✅ Ek hi aggregate se sab nikaalo (N+1 fix + service/product split)
+    const result = await Bill.aggregate([
+      { $match: query },
+      {
+        $facet: {
+          totals: [
+            {
+              $group: {
+                _id: null,
+                totalRevenue: { $sum: "$finalAmount" },
+                totalBills: { $sum: 1 },
+              },
+            },
+          ],
+          customers: [
+            {
+              $group: {
+                _id: "$customerPhone",
+                visitCount: { $sum: 1 },
+              },
+            },
+          ],
+                   serviceRevenue: [
+            {
+              $addFields: {
+                discountRatio: {
+                  $cond: [
+                    { $gt: ["$totalAmount", 0] },
+                    { $divide: ["$finalAmount", "$totalAmount"] },
+                    1,
+                  ],
+                },
+              },
+            },
+            { $unwind: "$services" },
+            {
+              $group: {
+                _id: null,
+                total: {
+                  $sum: {
+                    $multiply: [
+                      {
+                        $ifNull: [
+                          "$services.line_total",
+                          { $multiply: ["$services.price", { $ifNull: ["$services.quantity", 1] }] }
+                        ]
+                      },
+                      "$discountRatio"
+                    ]
+                  }
+                },
+              },
+            },
+          ],
+          productRevenue: [
+            {
+              $addFields: {
+                discountRatio: {
+                  $cond: [
+                    { $gt: ["$totalAmount", 0] },
+                    { $divide: ["$finalAmount", "$totalAmount"] },
+                    1,
+                  ],
+                },
+              },
+            },
+            { $unwind: "$products" },
+            {
+              $group: {
+                _id: null,
+                total: {
+                  $sum: {
+                    $multiply: [
+                      {
+                        $ifNull: [
+                          "$products.total",
+                          { $multiply: ["$products.price", { $ifNull: ["$products.quantity", 1] }] }
+                        ]
+                      },
+                      "$discountRatio"
+                    ]
+                  }
+                },
+              },
+            },
+          ],
+        },
+      },
+    ]);
 
-      const end = new Date(endDate);
+    const totals = result[0].totals[0] || { totalRevenue: 0, totalBills: 0 };
+    const customers = result[0].customers || [];
+    const serviceRev = result[0].serviceRevenue[0]?.total || 0;
+    const productRev = result[0].productRevenue[0]?.total || 0;
 
-      end.setHours(23, 59, 59, 999);
+    const totalRevenue = totals.totalRevenue || 0;
+    const totalBills = totals.totalBills || 0;
+    const avgBillValue = totalBills > 0 ? Math.round(totalRevenue / totalBills) : 0;
 
-       query.createdAt = {
-    $gte: start,
-    $lte: end,
-  };
-}
+    const totalCustomers = customers.length;
+    const repeatCustomers = customers.filter(c => c.visitCount > 1).length;
+    const repeatCustomerPercentage = totalCustomers > 0
+      ? Math.round((repeatCustomers / totalCustomers) * 100)
+      : 0;
 
-const bills = await Bill.find(query);
-
-
-
-const totalRevenue = bills.reduce(
-  (sum, bill) => sum + bill.finalAmount,
-  0
-);
-
-const totalBills = bills.length;
-
-const avgBillValue =
-  totalBills > 0
-    ? Math.round(totalRevenue / totalBills)
-    : 0;
-
-const customerPhones = [
-  ...new Set(
-    bills
-      .map((bill) => bill.customerPhone)
-      .filter(Boolean)
-  )
-];
-
-let repeatCustomers = 0;
-
-for (const phone of customerPhones) {
-
-  const totalVisits =
-    await Bill.countDocuments({
-      salonId,
-      customerPhone: phone
+    res.json({
+      success: true,
+      summary: {
+        totalRevenue,
+        totalBills,
+        avgBillValue,
+        repeatCustomerPercentage,
+        serviceRevenue: Math.round(serviceRev),
+        productRevenue: Math.round(productRev),
+        totalSale: Math.round(serviceRev + productRev),
+      },
     });
-
-  if (totalVisits > 1) {
-    repeatCustomers++;
-  }
-}
-
-const totalCustomers = customerPhones.length;
-
-    const repeatCustomerPercentage =
-      totalCustomers > 0
-        ? Math.round(
-            (repeatCustomers / totalCustomers) * 100
-          )
-        : 0;
-
-res.json({
-  success: true,
-  summary: {
-    totalRevenue,
-    totalBills,
-    avgBillValue,
-    repeatCustomerPercentage,
-  },
-});
-
   } catch (err) {
-
     console.log(err);
-
-    res.status(500).json({
-      success: false,
-      message: "Server Error",
-    });
-
+    res.status(500).json({ success: false, message: "Server Error" });
   }
 });
 // ==================== REVENUE OVERVIEW API ====================
