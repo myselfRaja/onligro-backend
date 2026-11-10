@@ -7,6 +7,7 @@ const ownerSchema = new mongoose.Schema({
   password: { type: String, required: true },
   salonId: { type: mongoose.Schema.Types.ObjectId, ref: "Salon" },
   isActive: { type: Boolean, default: true },
+    subscriptionEndDate: { type: Date, default: null },
 }, { timestamps: true });
 
 export const Owner = mongoose.model("Owner", ownerSchema);
